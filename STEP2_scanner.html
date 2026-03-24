@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Scanner Entrata — Festa Sport Acquatici</title>
+
+<!-- Libreria scanner QR (open source, nessuna API key) -->
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+<style>
+  /* ================================================
+     CONFIGURAZIONE COLORI — modifica qui se vuoi
+     ================================================ */
+  :root {
+    --blu:    #0077b6;
+    --acqua:  #00b4d8;
+    --verde:  #2dc653;
+    --rosso:  #e63946;
+    --giallo: #f4a261;
+    --sfondo: #023e8a;
+    --testo:  #ffffff;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: var(--sfondo);
+    color: var(--testo);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    background: rgba(0,0,0,0.3);
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  header h1 { font-size: 16px; font-weight: 700; }
+  header span { font-size: 22px; }
+
+  .tabs {
+    display: flex;
+    background: rgba(0,0,0,0.2);
+  }
+
+  .tab {
+    flex: 1;
+    padding: 12px;
+    text-align: center;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    border: none;
+    background: transparent;
+    color: rgba(255,255,255,0.6);
+    transition: all 0.2s;
+  }
+
+  .tab.active {
+    color: white;
+    background: rgba(255,255,255,0.15);
+    border-bottom: 3px solid var(--acqua);
+  }
+
+  .page { display: none; flex: 1; flex-direction: column; padding: 16px; gap: 14px; }
+  .page.active { display: flex; }
+
+  /* ---- SCANNER ---- */
+  #reader {
+    width: 100%;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #000;
+    aspect-ratio: 1;
+    max-width: 400px;
+    margin: 0 auto;
+    border: 3px solid var(--acqua);
+  }
+
+  #reader img { display: none !important; } /* nasconde logo html5-qrcode */
+
+  .result-box {
+    border-radius: 14px;
+    padding: 18px;
+    text-align: center;
+    display: none;
+    animation: pop 0.3s ease;
+  }
+
+  @keyframes pop {
+    from { transform: scale(0.9); opacity: 0; }
+    to   { transform: scale(1);   opacity: 1; }
+  }
+
+  .result-box.ok       { background: var(--verde);  display: block; }
+  .result-box.duplicato { background: var(--giallo); color: #1a1a1a; display: block; }
+  .result-box.errore   { background: var(--rosso);  display: block; }
+
+  .result-box .nome  { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
+  .result-box .info  { font-size: 14px; opacity: 0.9; }
+  .result-box .stato { font-size: 28px; margin-bottom: 8px; }
+
+  .btn-scan {
+    background: var(--acqua);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    padding: 14px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    width: 100%;
+    transition: opacity 0.2s;
+  }
+
+  .btn-scan:active { opacity: 0.8; }
+
+  /* ---- LISTA ---- */
+  .stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+  }
+
+  .stat-card {
+    background: rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 14px 10px;
+    text-align: center;
+  }
+
+  .stat-card .num  { font-size: 28px; font-weight: 800; }
+  .stat-card .lbl  { font-size: 11px; opacity: 0.7; margin-top: 2px; }
+  .stat-card.verde .num { color: var(--verde); }
+  .stat-card.giallo .num { color: var(--giallo); }
+
+  .search-box {
+    background: rgba(255,255,255,0.15);
+    border: none;
+    border-radius: 10px;
+    padding: 12px 14px;
+    color: white;
+    font-size: 14px;
+    width: 100%;
+    outline: none;
+  }
+
+  .search-box::placeholder { color: rgba(255,255,255,0.5); }
+
+  .lista-scroll { overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 8px; }
+
+  .persona-card {
+    background: rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .persona-card .badge {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+    background: rgba(255,255,255,0.15);
+  }
+
+  .persona-card.entrato .badge { background: var(--verde); }
+  .persona-card.non-entrato .badge { background: rgba(255,255,255,0.1); }
+
+  .persona-card .dati { flex: 1; overflow: hidden; }
+  .persona-card .minore  { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .persona-card .genitore { font-size: 12px; opacity: 0.7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .persona-card .turno   { font-size: 11px; opacity: 0.6; }
+
+  .chip {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 20px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .chip.si  { background: var(--verde);  color: white; }
+  .chip.no  { background: rgba(255,255,255,0.2); color: rgba(255,255,255,0.7); }
+
+  .btn-refresh {
+    background: rgba(255,255,255,0.15);
+    border: none;
+    border-radius: 10px;
+    color: white;
+    padding: 10px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: 600;
+    width: 100%;
+  }
+
+  .loading { text-align: center; padding: 40px; opacity: 0.6; }
+
+  /* ---- IMPOSTAZIONI ---- */
+  .setting-label {
+    font-size: 13px;
+    opacity: 0.8;
+    margin-bottom: 6px;
+    display: block;
+  }
+
+  .setting-input {
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 10px;
+    padding: 12px 14px;
+    color: white;
+    font-size: 13px;
+    width: 100%;
+    outline: none;
+  }
+
+  .setting-input::placeholder { color: rgba(255,255,255,0.4); }
+
+  .btn-salva {
+    background: var(--verde);
+    border: none;
+    border-radius: 10px;
+    color: white;
+    padding: 14px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    width: 100%;
+  }
+
+  .msg-salvato {
+    text-align: center;
+    font-size: 13px;
+    color: var(--verde);
+    display: none;
+  }
+
+  .istruzioni {
+    background: rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 14px;
+    font-size: 12px;
+    line-height: 1.7;
+    opacity: 0.85;
+  }
+
+  .istruzioni b { color: var(--acqua); }
+</style>
+</head>
+
+<body>
+
+<header>
+  <span>🌊</span>
+  <h1>Festa Sport Acquatici 2026 — Entrata</h1>
+  <span>🏊</span>
+</header>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('scanner')">📷 Scanner</button>
+  <button class="tab" onclick="switchTab('lista')">📋 Presenze</button>
+  <button class="tab" onclick="switchTab('impostazioni')">⚙️ Config</button>
+</div>
+
+<!-- TAB SCANNER -->
+<div id="tab-scanner" class="page active">
+  <div id="reader"></div>
+  <div id="result-box" class="result-box">
+    <div class="stato" id="res-stato"></div>
+    <div class="nome" id="res-nome"></div>
+    <div class="info" id="res-info"></div>
+  </div>
+  <button class="btn-scan" id="btn-scan" onclick="toggleScanner()">▶ Avvia Scanner</button>
+</div>
+
+<!-- TAB LISTA -->
+<div id="tab-lista" class="page">
+  <div class="stats">
+    <div class="stat-card">
+      <div class="num" id="stat-tot">—</div>
+      <div class="lbl">Iscritti</div>
+    </div>
+    <div class="stat-card verde">
+      <div class="num" id="stat-ent">—</div>
+      <div class="lbl">Entrati</div>
+    </div>
+    <div class="stat-card giallo">
+      <div class="num" id="stat-att">—</div>
+      <div class="lbl">Attesa</div>
+    </div>
+  </div>
+  <input class="search-box" type="search" placeholder="🔍 Cerca nome..." oninput="filtraLista(this.value)" id="search-input">
+  <div class="lista-scroll" id="lista-container">
+    <div class="loading">Carica prima la lista →</div>
+  </div>
+  <button class="btn-refresh" onclick="caricaLista()">🔄 Aggiorna lista</button>
+</div>
+
+<!-- TAB IMPOSTAZIONI -->
+<div id="tab-impostazioni" class="page">
+  <div class="istruzioni">
+    <b>Come configurare:</b><br>
+    1. Vai su <b>Google Sheet → Estensioni → Apps Script</b><br>
+    2. Incolla il codice dello STEP 1<br>
+    3. Clicca <b>Distribuisci → Nuova distribuzione → Applicazione web</b><br>
+    4. Chi ha accesso: <b>Tutti</b><br>
+    5. Copia l'URL e incollalo qui sotto<br>
+    6. Condividi questa pagina HTML con tutto lo staff 📲
+  </div>
+  <div>
+    <label class="setting-label">URL della Web App (Apps Script)</label>
+    <input class="setting-input" type="url" id="webapp-url"
+           placeholder="https://script.google.com/macros/s/XXXXX/exec"
+           value="">
+  </div>
+  <button class="btn-salva" onclick="salvaConfig()">💾 Salva</button>
+  <div class="msg-salvato" id="msg-salvato">✅ Salvato!</div>
+</div>
+
+<script>
+// =============================================
+//  STATO GLOBALE
+// =============================================
+let scanner = null;
+let scannerAttivo = false;
+let listaPersone = [];
+let urlWebApp = localStorage.getItem("webapp_url") || "";
+
+// Carica URL salvato
+document.getElementById("webapp-url").value = urlWebApp;
+
+// =============================================
+//  TABS
+// =============================================
+function switchTab(nome) {
+  document.querySelectorAll(".tab").forEach((t, i) => {
+    t.classList.toggle("active", ["scanner","lista","impostazioni"][i] === nome);
+  });
+  document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+  document.getElementById("tab-" + nome).classList.add("active");
+
+  if (nome === "lista" && listaPersone.length === 0) caricaLista();
+}
+
+// =============================================
+//  SCANNER
+// =============================================
+function toggleScanner() {
+  if (!urlWebApp) {
+    alert("Prima configura l'URL della Web App nella scheda ⚙️ Config");
+    switchTab("impostazioni");
+    return;
+  }
+  scannerAttivo ? fermaScanner() : avviaScanner();
+}
+
+function avviaScanner() {
+  const btn = document.getElementById("btn-scan");
+  btn.textContent = "⏹ Ferma Scanner";
+  scannerAttivo = true;
+  nascondiRisultato();
+
+  scanner = new Html5Qrcode("reader");
+  scanner.start(
+    { facingMode: "environment" },
+    { fps: 10, qrbox: { width: 250, height: 250 } },
+    onQrScanSuccess,
+    () => {}
+  ).catch(err => {
+    alert("Impossibile accedere alla fotocamera: " + err);
+    fermaScanner();
+  });
+}
+
+function fermaScanner() {
+  if (scanner) {
+    scanner.stop().then(() => { scanner = null; });
+  }
+  document.getElementById("btn-scan").textContent = "▶ Avvia Scanner";
+  scannerAttivo = false;
+}
+
+async function onQrScanSuccess(id) {
+  fermaScanner();
+
+  // Vibrazione feedback (se supportata)
+  if (navigator.vibrate) navigator.vibrate(100);
+
+  const box = document.getElementById("result-box");
+  box.className = "result-box";
+  document.getElementById("res-stato").textContent = "⏳";
+  document.getElementById("res-nome").textContent = "Verifica in corso...";
+  document.getElementById("res-info").textContent = "";
+  box.style.display = "block";
+
+  try {
+    const res = await fetch(`${urlWebApp}?action=verify&id=${encodeURIComponent(id)}`);
+    const dati = await res.json();
+
+    if (!dati.ok) {
+      mostraRisultato("errore", "❌", "QR non valido", dati.msg || "");
+    } else if (dati.duplicato) {
+      mostraRisultato("duplicato", "⚠️", dati.nome, `QR già usato — ${dati.turno}`);
+    } else {
+      mostraRisultato("ok", "✅", dati.nome, `${dati.turno} · ${dati.disciplina}`);
+      if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+    }
+  } catch (err) {
+    mostraRisultato("errore", "❌", "Errore connessione", "Verifica la connessione internet");
+  }
+
+  // Auto-riavvia scanner dopo 3 secondi
+  setTimeout(() => {
+    nascondiRisultato();
+    avviaScanner();
+  }, 3000);
+}
+
+function mostraRisultato(tipo, stato, nome, info) {
+  const box = document.getElementById("result-box");
+  box.className = "result-box " + tipo;
+  document.getElementById("res-stato").textContent = stato;
+  document.getElementById("res-nome").textContent = nome;
+  document.getElementById("res-info").textContent = info;
+}
+
+function nascondiRisultato() {
+  document.getElementById("result-box").style.display = "none";
+}
+
+// =============================================
+//  LISTA PRESENZE
+// =============================================
+async function caricaLista() {
+  if (!urlWebApp) {
+    document.getElementById("lista-container").innerHTML =
+      '<div class="loading">Configura prima l\'URL nella scheda ⚙️</div>';
+    return;
+  }
+
+  document.getElementById("lista-container").innerHTML =
+    '<div class="loading">⏳ Caricamento...</div>';
+
+  try {
+    const res = await fetch(`${urlWebApp}?action=list`);
+    listaPersone = await res.json();
+    renderLista(listaPersone);
+  } catch (e) {
+    document.getElementById("lista-container").innerHTML =
+      '<div class="loading">❌ Errore caricamento. Controlla connessione.</div>';
+  }
+}
+
+function renderLista(persone) {
+  const entrati = persone.filter(p => p.verificato).length;
+  document.getElementById("stat-tot").textContent = persone.length;
+  document.getElementById("stat-ent").textContent = entrati;
+  document.getElementById("stat-att").textContent = persone.length - entrati;
+
+  if (persone.length === 0) {
+    document.getElementById("lista-container").innerHTML =
+      '<div class="loading">Nessuna iscrizione ancora</div>';
+    return;
+  }
+
+  // Ordina: non entrati prima, poi entrati
+  const sorted = [...persone].sort((a, b) => a.verificato - b.verificato);
+
+  document.getElementById("lista-container").innerHTML = sorted.map(p => `
+    <div class="persona-card ${p.verificato ? 'entrato' : 'non-entrato'}">
+      <div class="badge">${p.verificato ? '✅' : '🎟️'}</div>
+      <div class="dati">
+        <div class="minore">${p.nome || '—'}</div>
+        
+        <div class="turno">${p.turno || ''} ${p.disciplina ? '· ' + p.disciplina : ''}</div>
+      </div>
+      <span class="chip ${p.verificato ? 'si' : 'no'}">${p.verificato ? 'Entrato' : 'Attesa'}</span>
+    </div>
+  `).join("");
+}
+
+function filtraLista(testo) {
+  const t = testo.toLowerCase();
+  const filtrati = listaPersone.filter(p =>
+    (p.minore || "").toLowerCase().includes(t) ||
+    (p.genitore || "").toLowerCase().includes(t)
+  );
+  renderLista(filtrati);
+}
+
+// =============================================
+//  CONFIGURAZIONE
+// =============================================
+function salvaConfig() {
+  const url = document.getElementById("webapp-url").value.trim();
+  localStorage.setItem("webapp_url", url);
+  urlWebApp = url;
+  const msg = document.getElementById("msg-salvato");
+  msg.style.display = "block";
+  setTimeout(() => msg.style.display = "none", 2000);
+}
+</script>
+</body>
+</html>
