@@ -3,513 +3,285 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Scanner Entrata — Festa Sport Acquatici</title>
-
-<!-- Libreria scanner QR (open source, nessuna API key) -->
+<title>Scanner Entrata — Firenze Rugby Subacqueo</title>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-
 <style>
-  /* ================================================
-     CONFIGURAZIONE COLORI — modifica qui se vuoi
-     ================================================ */
   :root {
-    --blu:    #0077b6;
-    --acqua:  #00b4d8;
-    --verde:  #2dc653;
-    --rosso:  #e63946;
-    --giallo: #f4a261;
-    --sfondo: #023e8a;
-    --testo:  #ffffff;
+    --blu:     #0d1b35;
+    --blu2:    #1a2a4a;
+    --arancio: #e8511a;
+    --verde:   #2dc653;
+    --rosso:   #e63946;
+    --giallo:  #f4a261;
   }
-
   * { box-sizing: border-box; margin: 0; padding: 0; }
-
   body {
     font-family: 'Segoe UI', Arial, sans-serif;
-    background: var(--sfondo);
-    color: var(--testo);
+    background: var(--blu);
+    color: #fff;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
   }
-
   header {
-    background: rgba(0,0,0,0.3);
-    padding: 14px 20px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-  }
-
-  header h1 { font-size: 16px; font-weight: 700; }
-  header span { font-size: 22px; }
-
-  .tabs {
-    display: flex;
-    background: rgba(0,0,0,0.2);
-  }
-
-  .tab {
-    flex: 1;
-    padding: 12px;
-    text-align: center;
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 600;
-    border: none;
-    background: transparent;
-    color: rgba(255,255,255,0.6);
-    transition: all 0.2s;
-  }
-
-  .tab.active {
-    color: white;
-    background: rgba(255,255,255,0.15);
-    border-bottom: 3px solid var(--acqua);
-  }
-
-  .page { display: none; flex: 1; flex-direction: column; padding: 16px; gap: 14px; }
-  .page.active { display: flex; }
-
-  /* ---- SCANNER ---- */
-  #reader {
-    width: 100%;
-    border-radius: 16px;
-    overflow: hidden;
-    background: #000;
-    aspect-ratio: 1;
-    max-width: 400px;
-    margin: 0 auto;
-    border: 3px solid var(--acqua);
-  }
-
-  #reader img { display: none !important; } /* nasconde logo html5-qrcode */
-
-  .result-box {
-    border-radius: 14px;
-    padding: 18px;
-    text-align: center;
-    display: none;
-    animation: pop 0.3s ease;
-  }
-
-  @keyframes pop {
-    from { transform: scale(0.9); opacity: 0; }
-    to   { transform: scale(1);   opacity: 1; }
-  }
-
-  .result-box.ok       { background: var(--verde);  display: block; }
-  .result-box.duplicato { background: var(--giallo); color: #1a1a1a; display: block; }
-  .result-box.errore   { background: var(--rosso);  display: block; }
-
-  .result-box .nome  { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
-  .result-box .info  { font-size: 14px; opacity: 0.9; }
-  .result-box .stato { font-size: 28px; margin-bottom: 8px; }
-
-  .btn-scan {
-    background: var(--acqua);
-    color: white;
-    border: none;
-    border-radius: 12px;
-    padding: 14px;
-    font-size: 16px;
-    font-weight: 700;
-    cursor: pointer;
-    width: 100%;
-    transition: opacity 0.2s;
-  }
-
-  .btn-scan:active { opacity: 0.8; }
-
-  /* ---- LISTA ---- */
-  .stats {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 10px;
-  }
-
-  .stat-card {
-    background: rgba(255,255,255,0.1);
-    border-radius: 12px;
-    padding: 14px 10px;
-    text-align: center;
-  }
-
-  .stat-card .num  { font-size: 28px; font-weight: 800; }
-  .stat-card .lbl  { font-size: 11px; opacity: 0.7; margin-top: 2px; }
-  .stat-card.verde .num { color: var(--verde); }
-  .stat-card.giallo .num { color: var(--giallo); }
-
-  .search-box {
-    background: rgba(255,255,255,0.15);
-    border: none;
-    border-radius: 10px;
-    padding: 12px 14px;
-    color: white;
-    font-size: 14px;
-    width: 100%;
-    outline: none;
-  }
-
-  .search-box::placeholder { color: rgba(255,255,255,0.5); }
-
-  .lista-scroll { overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 8px; }
-
-  .persona-card {
-    background: rgba(255,255,255,0.1);
-    border-radius: 12px;
-    padding: 12px 14px;
+    background: linear-gradient(135deg, var(--blu) 0%, var(--blu2) 60%, #2a1808 100%);
+    padding: 14px 16px 10px;
     display: flex;
     align-items: center;
     gap: 12px;
+    border-bottom: 2px solid var(--arancio);
   }
-
+  header img { width: 48px; height: 48px; object-fit: contain; flex-shrink: 0; }
+  header .titolo h1 { font-size: 13px; font-weight: 800; line-height: 1.2; }
+  header .titolo p { font-size: 10px; color: var(--arancio); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+  .tabs { display: flex; background: rgba(0,0,0,0.4); border-bottom: 1px solid rgba(255,255,255,0.08); }
+  .tab {
+    flex: 1; padding: 11px 6px; text-align: center; cursor: pointer;
+    font-size: 12px; font-weight: 700; border: none; background: transparent;
+    color: rgba(255,255,255,0.45); transition: all 0.2s; letter-spacing: 0.5px;
+  }
+  .tab.active { color: white; background: rgba(232,81,26,0.15); border-bottom: 3px solid var(--arancio); }
+  .page { display: none; flex: 1; flex-direction: column; padding: 14px; gap: 12px; }
+  .page.active { display: flex; }
+  #reader {
+    width: 100%; border-radius: 14px; overflow: hidden; background: #000;
+    aspect-ratio: 1; max-width: 380px; margin: 0 auto;
+    border: 3px solid var(--arancio);
+    box-shadow: 0 0 0 1px rgba(232,81,26,0.3), 0 8px 32px rgba(0,0,0,0.5);
+  }
+  #reader img { display: none !important; }
+  .result-box {
+    border-radius: 14px; padding: 20px 16px;
+    text-align: center; display: none; animation: pop 0.25s ease;
+  }
+  @keyframes pop {
+    from { transform: scale(0.88); opacity: 0; }
+    to   { transform: scale(1);    opacity: 1; }
+  }
+  .result-box.ok        { background: var(--verde);  display: block; }
+  .result-box.duplicato { background: var(--giallo); color: #1a1a1a; display: block; }
+  .result-box.errore    { background: var(--rosso);  display: block; }
+  .result-box .icona { font-size: 38px; margin-bottom: 8px; font-weight: 900; }
+  .result-box .nome  { font-size: 20px; font-weight: 800; margin-bottom: 4px; }
+  .result-box .info  { font-size: 13px; opacity: 0.9; }
+  .btn-scan {
+    background: var(--arancio); color: white; border: none;
+    border-radius: 12px; padding: 15px; font-size: 16px; font-weight: 800;
+    cursor: pointer; width: 100%; letter-spacing: 0.5px;
+    box-shadow: 0 4px 16px rgba(232,81,26,0.4); transition: opacity 0.15s;
+  }
+  .btn-scan:active { opacity: 0.8; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .stat-card {
+    background: rgba(255,255,255,0.07); border-radius: 12px; padding: 12px 8px;
+    text-align: center; border: 1px solid rgba(255,255,255,0.08);
+  }
+  .stat-card .num { font-size: 26px; font-weight: 800; }
+  .stat-card .lbl { font-size: 10px; opacity: 0.6; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-card.verde .num { color: var(--verde); }
+  .stat-card.arancio .num { color: var(--arancio); }
+  .search-box {
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 10px; padding: 11px 14px; color: white; font-size: 14px; width: 100%; outline: none;
+  }
+  .search-box::placeholder { color: rgba(255,255,255,0.4); }
+  .lista-scroll { overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 7px; }
+  .persona-card {
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 11px; padding: 11px 13px; display: flex; align-items: center; gap: 11px;
+  }
+  .persona-card.entrato { border-left: 3px solid var(--verde); background: rgba(45,198,83,0.08); }
   .persona-card .badge {
-    width: 36px; height: 36px;
-    border-radius: 50%;
+    width: 34px; height: 34px; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
-    font-size: 18px;
-    flex-shrink: 0;
-    background: rgba(255,255,255,0.15);
+    font-size: 16px; flex-shrink: 0; background: rgba(255,255,255,0.1); font-weight: 900;
   }
-
-  .persona-card.entrato .badge { background: var(--verde); }
-  .persona-card.non-entrato .badge { background: rgba(255,255,255,0.1); }
-
+  .persona-card.entrato .badge { background: rgba(45,198,83,0.25); color: var(--verde); }
   .persona-card .dati { flex: 1; overflow: hidden; }
-  .persona-card .minore  { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .persona-card .genitore { font-size: 12px; opacity: 0.7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .persona-card .turno   { font-size: 11px; opacity: 0.6; }
-
-  .chip {
-    font-size: 11px;
-    padding: 3px 8px;
-    border-radius: 20px;
-    font-weight: 600;
-    flex-shrink: 0;
-  }
-
-  .chip.si  { background: var(--verde);  color: white; }
-  .chip.no  { background: rgba(255,255,255,0.2); color: rgba(255,255,255,0.7); }
-
+  .persona-card .pnome { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .persona-card .pturno { font-size: 11px; opacity: 0.55; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip { font-size: 10px; padding: 3px 9px; border-radius: 20px; font-weight: 700; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.5px; }
+  .chip.si { background: var(--verde); color: white; }
+  .chip.no { background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.6); }
   .btn-refresh {
-    background: rgba(255,255,255,0.15);
-    border: none;
-    border-radius: 10px;
-    color: white;
-    padding: 10px;
-    font-size: 13px;
-    cursor: pointer;
-    font-weight: 600;
-    width: 100%;
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 10px; color: white; padding: 11px; font-size: 13px;
+    cursor: pointer; font-weight: 700; width: 100%;
   }
-
-  .loading { text-align: center; padding: 40px; opacity: 0.6; }
-
-  /* ---- IMPOSTAZIONI ---- */
-  .setting-label {
-    font-size: 13px;
-    opacity: 0.8;
-    margin-bottom: 6px;
-    display: block;
-  }
-
+  .loading { text-align: center; padding: 40px; opacity: 0.5; font-size: 13px; }
+  .setting-label { font-size: 12px; opacity: 0.7; margin-bottom: 6px; display: block; text-transform: uppercase; letter-spacing: 0.5px; }
   .setting-input {
-    background: rgba(255,255,255,0.15);
-    border: 1px solid rgba(255,255,255,0.3);
-    border-radius: 10px;
-    padding: 12px 14px;
-    color: white;
-    font-size: 13px;
-    width: 100%;
-    outline: none;
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 10px; padding: 12px 14px; color: white; font-size: 13px; width: 100%; outline: none;
   }
-
-  .setting-input::placeholder { color: rgba(255,255,255,0.4); }
-
+  .setting-input::placeholder { color: rgba(255,255,255,0.3); }
   .btn-salva {
-    background: var(--verde);
-    border: none;
-    border-radius: 10px;
-    color: white;
-    padding: 14px;
-    font-size: 15px;
-    font-weight: 700;
-    cursor: pointer;
-    width: 100%;
+    background: var(--arancio); border: none; border-radius: 10px; color: white;
+    padding: 14px; font-size: 15px; font-weight: 800; cursor: pointer; width: 100%;
+    box-shadow: 0 4px 16px rgba(232,81,26,0.35);
   }
-
-  .msg-salvato {
-    text-align: center;
-    font-size: 13px;
-    color: var(--verde);
-    display: none;
-  }
-
+  .msg-salvato { text-align: center; font-size: 13px; color: var(--verde); display: none; font-weight: 700; }
   .istruzioni {
-    background: rgba(255,255,255,0.08);
-    border-radius: 12px;
-    padding: 14px;
-    font-size: 12px;
-    line-height: 1.7;
-    opacity: 0.85;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px; padding: 14px; font-size: 12px; line-height: 1.8; opacity: 0.85;
   }
-
-  .istruzioni b { color: var(--acqua); }
+  .istruzioni b { color: var(--arancio); }
 </style>
 </head>
-
 <body>
 
 <header>
-  <span>🌊</span>
-  <h1>Festa Sport Acquatici 2026 — Entrata</h1>
-  <span>🏊</span>
+  <img src="data:image/jpeg;base64,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" alt="Logo Firenze Rugby Subacqueo">
+  <div class="titolo">
+    <h1>Festa Sport Acquatici 2026</h1>
+    <p>Firenze Rugby Subacqueo</p>
+  </div>
 </header>
 
 <div class="tabs">
-  <button class="tab active" onclick="switchTab('scanner')">📷 Scanner</button>
-  <button class="tab" onclick="switchTab('lista')">📋 Presenze</button>
-  <button class="tab" onclick="switchTab('impostazioni')">⚙️ Config</button>
+  <button class="tab active" onclick="switchTab('scanner')">SCANNER</button>
+  <button class="tab" onclick="switchTab('lista')">PRESENZE</button>
+  <button class="tab" onclick="switchTab('impostazioni')">CONFIG</button>
 </div>
 
-<!-- TAB SCANNER -->
 <div id="tab-scanner" class="page active">
   <div id="reader"></div>
   <div id="result-box" class="result-box">
-    <div class="stato" id="res-stato"></div>
+    <div class="icona" id="res-stato"></div>
     <div class="nome" id="res-nome"></div>
     <div class="info" id="res-info"></div>
   </div>
-  <button class="btn-scan" id="btn-scan" onclick="toggleScanner()">▶ Avvia Scanner</button>
+  <button class="btn-scan" id="btn-scan" onclick="toggleScanner()">AVVIA SCANNER</button>
 </div>
 
-<!-- TAB LISTA -->
 <div id="tab-lista" class="page">
   <div class="stats">
-    <div class="stat-card">
-      <div class="num" id="stat-tot">—</div>
-      <div class="lbl">Iscritti</div>
-    </div>
-    <div class="stat-card verde">
-      <div class="num" id="stat-ent">—</div>
-      <div class="lbl">Entrati</div>
-    </div>
-    <div class="stat-card giallo">
-      <div class="num" id="stat-att">—</div>
-      <div class="lbl">Attesa</div>
-    </div>
+    <div class="stat-card"><div class="num" id="stat-tot">-</div><div class="lbl">Iscritti</div></div>
+    <div class="stat-card verde"><div class="num" id="stat-ent">-</div><div class="lbl">Entrati</div></div>
+    <div class="stat-card arancio"><div class="num" id="stat-att">-</div><div class="lbl">Attesa</div></div>
   </div>
-  <input class="search-box" type="search" placeholder="🔍 Cerca nome..." oninput="filtraLista(this.value)" id="search-input">
+  <input class="search-box" type="search" placeholder="Cerca nome..." oninput="filtraLista(this.value)">
   <div class="lista-scroll" id="lista-container">
-    <div class="loading">Carica prima la lista →</div>
+    <div class="loading">Apri questa scheda per caricare</div>
   </div>
-  <button class="btn-refresh" onclick="caricaLista()">🔄 Aggiorna lista</button>
+  <button class="btn-refresh" onclick="caricaLista()">AGGIORNA LISTA</button>
 </div>
 
-<!-- TAB IMPOSTAZIONI -->
 <div id="tab-impostazioni" class="page">
   <div class="istruzioni">
     <b>Come configurare:</b><br>
-    1. Vai su <b>Google Sheet → Estensioni → Apps Script</b><br>
-    2. Incolla il codice dello STEP 1<br>
-    3. Clicca <b>Distribuisci → Nuova distribuzione → Applicazione web</b><br>
-    4. Chi ha accesso: <b>Tutti</b><br>
-    5. Copia l'URL e incollalo qui sotto<br>
-    6. Condividi questa pagina HTML con tutto lo staff 📲
+    1. Apps Script &rarr; <b>Distribuisci &rarr; Applicazione web</b><br>
+    2. Chi ha accesso: <b>Tutti</b><br>
+    3. Copia l'URL e incollalo qui sotto<br>
+    4. Condividi questa pagina con lo staff
   </div>
   <div>
-    <label class="setting-label">URL della Web App (Apps Script)</label>
-    <input class="setting-input" type="url" id="webapp-url"
-           placeholder="https://script.google.com/macros/s/XXXXX/exec"
-           value="">
+    <label class="setting-label">URL Web App (Apps Script)</label>
+    <input class="setting-input" type="url" id="webapp-url" placeholder="https://script.google.com/macros/s/XXXXX/exec">
   </div>
-  <button class="btn-salva" onclick="salvaConfig()">💾 Salva</button>
-  <div class="msg-salvato" id="msg-salvato">✅ Salvato!</div>
+  <button class="btn-salva" onclick="salvaConfig()">SALVA</button>
+  <div class="msg-salvato" id="msg-salvato">Salvato!</div>
 </div>
 
 <script>
-// =============================================
-//  STATO GLOBALE
-// =============================================
-let scanner = null;
-let scannerAttivo = false;
-let listaPersone = [];
+let scanner = null, scannerAttivo = false, listaPersone = [];
 let urlWebApp = localStorage.getItem("webapp_url") || "";
-
-// Carica URL salvato
 document.getElementById("webapp-url").value = urlWebApp;
 
-// =============================================
-//  TABS
-// =============================================
 function switchTab(nome) {
-  document.querySelectorAll(".tab").forEach((t, i) => {
-    t.classList.toggle("active", ["scanner","lista","impostazioni"][i] === nome);
-  });
+  document.querySelectorAll(".tab").forEach((t,i) => t.classList.toggle("active", ["scanner","lista","impostazioni"][i]===nome));
   document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
-  document.getElementById("tab-" + nome).classList.add("active");
-
-  if (nome === "lista" && listaPersone.length === 0) caricaLista();
+  document.getElementById("tab-"+nome).classList.add("active");
+  if (nome==="lista" && listaPersone.length===0) caricaLista();
 }
 
-// =============================================
-//  SCANNER
-// =============================================
 function toggleScanner() {
-  if (!urlWebApp) {
-    alert("Prima configura l'URL della Web App nella scheda ⚙️ Config");
-    switchTab("impostazioni");
-    return;
-  }
+  if (!urlWebApp) { alert("Prima configura l'URL nella scheda CONFIG"); switchTab("impostazioni"); return; }
   scannerAttivo ? fermaScanner() : avviaScanner();
 }
 
 function avviaScanner() {
-  const btn = document.getElementById("btn-scan");
-  btn.textContent = "⏹ Ferma Scanner";
-  scannerAttivo = true;
-  nascondiRisultato();
-
+  document.getElementById("btn-scan").textContent = "FERMA SCANNER";
+  scannerAttivo = true; nascondiRisultato();
   scanner = new Html5Qrcode("reader");
-  scanner.start(
-    { facingMode: "environment" },
-    { fps: 10, qrbox: { width: 250, height: 250 } },
-    onQrScanSuccess,
-    () => {}
-  ).catch(err => {
-    alert("Impossibile accedere alla fotocamera: " + err);
-    fermaScanner();
-  });
+  scanner.start({facingMode:"environment"}, {fps:10, qrbox:{width:240,height:240}}, onQrScanSuccess, ()=>{})
+    .catch(err => { alert("Fotocamera non accessibile: "+err); fermaScanner(); });
 }
 
 function fermaScanner() {
-  if (scanner) {
-    scanner.stop().then(() => { scanner = null; });
-  }
-  document.getElementById("btn-scan").textContent = "▶ Avvia Scanner";
+  if (scanner) scanner.stop().then(()=>{ scanner=null; });
+  document.getElementById("btn-scan").textContent = "AVVIA SCANNER";
   scannerAttivo = false;
 }
 
 async function onQrScanSuccess(id) {
   fermaScanner();
-
-  // Vibrazione feedback (se supportata)
-  if (navigator.vibrate) navigator.vibrate(100);
-
+  if (navigator.vibrate) navigator.vibrate(80);
   const box = document.getElementById("result-box");
-  box.className = "result-box";
-  document.getElementById("res-stato").textContent = "⏳";
-  document.getElementById("res-nome").textContent = "Verifica in corso...";
+  box.className = "result-box ok"; box.style.display = "block";
+  document.getElementById("res-stato").textContent = "...";
+  document.getElementById("res-nome").textContent = "Verifica in corso";
   document.getElementById("res-info").textContent = "";
-  box.style.display = "block";
-
   try {
-    const res = await fetch(`${urlWebApp}?action=verify&id=${encodeURIComponent(id)}`);
-    const dati = await res.json();
-
-    if (!dati.ok) {
-      mostraRisultato("errore", "❌", "QR non valido", dati.msg || "");
-    } else if (dati.duplicato) {
-      mostraRisultato("duplicato", "⚠️", dati.nome, `QR già usato — ${dati.turno}`);
-    } else {
-      mostraRisultato("ok", "✅", dati.nome, `${dati.turno} · ${dati.disciplina}`);
-      if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+    const res = await fetch(urlWebApp+"?action=verify&id="+encodeURIComponent(id));
+    const d = await res.json();
+    if (!d.ok) mostraRisultato("errore","X","QR non valido", d.msg||"");
+    else if (d.duplicato) mostraRisultato("duplicato","!",d.nome,"QR gia usato — "+d.turno);
+    else {
+      mostraRisultato("ok","OK",d.nome, d.turno+(d.disciplina?" · "+d.disciplina:""));
+      if (navigator.vibrate) navigator.vibrate([80,40,80]);
     }
-  } catch (err) {
-    mostraRisultato("errore", "❌", "Errore connessione", "Verifica la connessione internet");
-  }
-
-  // Auto-riavvia scanner dopo 3 secondi
-  setTimeout(() => {
-    nascondiRisultato();
-    avviaScanner();
-  }, 3000);
+  } catch(e) { mostraRisultato("errore","X","Errore connessione","Controlla internet"); }
+  setTimeout(()=>{ nascondiRisultato(); avviaScanner(); }, 3000);
 }
 
 function mostraRisultato(tipo, stato, nome, info) {
   const box = document.getElementById("result-box");
-  box.className = "result-box " + tipo;
+  box.className = "result-box "+tipo;
   document.getElementById("res-stato").textContent = stato;
   document.getElementById("res-nome").textContent = nome;
   document.getElementById("res-info").textContent = info;
 }
+function nascondiRisultato() { document.getElementById("result-box").style.display = "none"; }
 
-function nascondiRisultato() {
-  document.getElementById("result-box").style.display = "none";
-}
-
-// =============================================
-//  LISTA PRESENZE
-// =============================================
 async function caricaLista() {
-  if (!urlWebApp) {
-    document.getElementById("lista-container").innerHTML =
-      '<div class="loading">Configura prima l\'URL nella scheda ⚙️</div>';
-    return;
-  }
-
-  document.getElementById("lista-container").innerHTML =
-    '<div class="loading">⏳ Caricamento...</div>';
-
+  if (!urlWebApp) { document.getElementById("lista-container").innerHTML='<div class="loading">Configura prima URL in CONFIG</div>'; return; }
+  document.getElementById("lista-container").innerHTML='<div class="loading">Caricamento...</div>';
   try {
-    const res = await fetch(`${urlWebApp}?action=list`);
+    const res = await fetch(urlWebApp+"?action=list");
     listaPersone = await res.json();
     renderLista(listaPersone);
-  } catch (e) {
-    document.getElementById("lista-container").innerHTML =
-      '<div class="loading">❌ Errore caricamento. Controlla connessione.</div>';
-  }
+  } catch(e) { document.getElementById("lista-container").innerHTML='<div class="loading">Errore. Controlla connessione.</div>'; }
 }
 
 function renderLista(persone) {
-  const entrati = persone.filter(p => p.verificato).length;
+  const entrati = persone.filter(p=>p.verificato).length;
   document.getElementById("stat-tot").textContent = persone.length;
   document.getElementById("stat-ent").textContent = entrati;
   document.getElementById("stat-att").textContent = persone.length - entrati;
-
-  if (persone.length === 0) {
-    document.getElementById("lista-container").innerHTML =
-      '<div class="loading">Nessuna iscrizione ancora</div>';
-    return;
-  }
-
-  // Ordina: non entrati prima, poi entrati
-  const sorted = [...persone].sort((a, b) => a.verificato - b.verificato);
-
-  document.getElementById("lista-container").innerHTML = sorted.map(p => `
-    <div class="persona-card ${p.verificato ? 'entrato' : 'non-entrato'}">
-      <div class="badge">${p.verificato ? '✅' : '🎟️'}</div>
+  if (!persone.length) { document.getElementById("lista-container").innerHTML='<div class="loading">Nessuna iscrizione ancora</div>'; return; }
+  const sorted = [...persone].sort((a,b)=>a.verificato-b.verificato);
+  document.getElementById("lista-container").innerHTML = sorted.map(p=>`
+    <div class="persona-card ${p.verificato?"entrato":""}">
+      <div class="badge">${p.verificato?"✓":"○"}</div>
       <div class="dati">
-        <div class="minore">${p.nome || '—'}</div>
-        
-        <div class="turno">${p.turno || ''} ${p.disciplina ? '· ' + p.disciplina : ''}</div>
+        <div class="pnome">${p.nome||"—"}</div>
+        <div class="pturno">${p.turno||""}${p.disciplina?" · "+p.disciplina:""}</div>
       </div>
-      <span class="chip ${p.verificato ? 'si' : 'no'}">${p.verificato ? 'Entrato' : 'Attesa'}</span>
+      <span class="chip ${p.verificato?"si":"no"}">${p.verificato?"Entrato":"Attesa"}</span>
     </div>
   `).join("");
 }
 
-function filtraLista(testo) {
-  const t = testo.toLowerCase();
-  const filtrati = listaPersone.filter(p =>
-    (p.minore || "").toLowerCase().includes(t) ||
-    (p.genitore || "").toLowerCase().includes(t)
-  );
-  renderLista(filtrati);
+function filtraLista(t) {
+  renderLista(listaPersone.filter(p=>(p.nome||"").toLowerCase().includes(t.toLowerCase())));
 }
 
-// =============================================
-//  CONFIGURAZIONE
-// =============================================
 function salvaConfig() {
   const url = document.getElementById("webapp-url").value.trim();
-  localStorage.setItem("webapp_url", url);
-  urlWebApp = url;
+  localStorage.setItem("webapp_url", url); urlWebApp = url;
   const msg = document.getElementById("msg-salvato");
-  msg.style.display = "block";
-  setTimeout(() => msg.style.display = "none", 2000);
+  msg.style.display="block"; setTimeout(()=>msg.style.display="none", 2000);
 }
 </script>
 </body>
