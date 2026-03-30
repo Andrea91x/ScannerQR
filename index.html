@@ -202,7 +202,7 @@ function avviaScanner() {
   document.getElementById("btn-scan").textContent = "FERMA SCANNER";
   scannerAttivo = true; nascondiRisultato();
   scanner = new Html5Qrcode("reader");
-  scanner.start({facingMode:"environment"}, {fps:10, qrbox:{width:240,height:240}}, onQrScanSuccess, ()=>{})
+  scanner.start({facingMode:"environment"}, {fps:10, qrbox:{width:300,height:300}}, onQrScanSuccess, ()=>{})
     .catch(err => { alert("Fotocamera non accessibile: "+err); fermaScanner(); });
 }
 
