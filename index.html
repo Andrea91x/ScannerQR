@@ -76,9 +76,15 @@
   .result-box.duplicato { background: var(--giallo); color: #1a1a1a; display: block; }
   .result-box.errore    { background: var(--rosso);  display: block; }
   .result-box.attesa    { background: rgba(255,255,255,0.12); display: block; }
-  .result-box .icona { font-size: 38px; margin-bottom: 8px; font-weight: 900; }
-  .result-box .nome  { font-size: 20px; font-weight: 800; margin-bottom: 4px; }
+  .result-box .icona { font-size: 30px; margin-bottom: 4px; font-weight: 900; }
+  .result-box .nome  { font-size: 27px; font-weight: 900; line-height: 1.15; margin-bottom: 6px; word-break: break-word; }
   .result-box .info  { font-size: 13px; opacity: 0.9; }
+  .result-box .nato  {
+    font-size: 14px; font-weight: 700; margin-top: 10px;
+    display: inline-block; padding: 4px 12px; border-radius: 20px;
+    background: rgba(0,0,0,0.18);
+  }
+  .result-box .nato:empty { display: none; }
   .btn-annulla {
     display: none; margin: 14px auto 0; background: rgba(0,0,0,0.25);
     border: 1px solid rgba(255,255,255,0.35); color: inherit;
@@ -185,6 +191,7 @@
     <div class="icona" id="res-stato"></div>
     <div class="nome" id="res-nome"></div>
     <div class="info" id="res-info"></div>
+    <div class="nato" id="res-nato"></div>
     <button class="btn-annulla" id="btn-annulla" onclick="annullaUltimo()">ANNULLA INGRESSO</button>
   </div>
   <button class="btn-scan" id="btn-scan" onclick="toggleScanner()">AVVIA SCANNER</button>
@@ -231,6 +238,8 @@ let scannerAttivo = false;
 let inCorso = false;          // evita che lo stesso QR venga letto due volte
 let listaPersone = [];
 let ultimoIngresso = null;    // per il tasto ANNULLA
+let ultimoIdLetto = "";       // ultimo QR letto, per non rileggerlo di continuo
+let ultimoLettoTs = 0;
 let wakeLock = null;
 let timerRipresa = null;
 
@@ -316,29 +325,37 @@ function fermaScanner() {
 }
 
 async function onQrScanSuccess(id) {
-  // Prima si faceva stop() + start() a ogni lettura: stop() è asincrono e,
-  // con la fila all'ingresso, capitava che la fotocamera non ripartisse.
-  // Ora si mette in pausa e si riprende: è istantaneo e non fallisce.
-  if (inCorso) return;
+  const adesso = Date.now();
+
+  // Lo stesso QR ancora davanti alla fotocamera non viene riletto per 5 secondi:
+  // così il riquadro non lampeggia mentre guardi il nome.
+  if (inCorso || (id === ultimoIdLetto && adesso - ultimoLettoTs < 5000)) return;
   inCorso = true;
+  ultimoIdLetto = id;
+  ultimoLettoTs = adesso;
+
+  // stop() + start() a ogni lettura era asincrono e, con la fila all'ingresso,
+  // capitava che la fotocamera non ripartisse. pause()/resume() è istantaneo.
   try { await scanner.pause(true); } catch (e) {}
 
   vibra(80);
-  mostraRisultato("attesa", "…", "Verifica in corso", "");
+  mostraRisultato("attesa", "…", "Verifica in corso", "", "");
 
   try {
     const d = await chiamaApi({ action: "verify", id: id });
+    const dettagli = [d.turno, d.disciplina].filter(Boolean).join(" · ");
+    const nato = d.nascita ? "Nato il " + d.nascita : "";
 
     if (!d.ok) {
-      mostraRisultato("errore", "X", "QR non valido", d.msg || "");
+      mostraRisultato("errore", "X", "QR non valido", d.msg || "", "");
       vibra([200, 80, 200]);
     } else if (d.duplicato) {
       mostraRisultato("duplicato", "!", d.nome,
-        "Già entrato" + (d.orario ? " alle " + d.orario : ""));
+        "GIÀ ENTRATO" + (d.orario ? " alle " + d.orario : "") +
+        (dettagli ? " · " + dettagli : ""), nato);
       vibra([200, 80, 200]);
     } else {
-      mostraRisultato("ok", "OK", d.nome,
-        (d.turno || "") + (d.disciplina ? " · " + d.disciplina : ""));
+      mostraRisultato("ok", "✓", d.nome, dettagli, nato);
       ultimoIngresso = { id: id, nome: d.nome };
       document.getElementById("btn-annulla").style.display = "block";
       vibra([80, 40, 80]);
@@ -348,15 +365,17 @@ async function onQrScanSuccess(id) {
     // Rete assente: la scansione non va persa, entra in coda e riparte da sola.
     accodaOffline(id);
     mostraRisultato("duplicato", "⇄", "Salvato in coda",
-      "Rete assente. Verrà registrato appena torna il segnale.");
+      "Rete assente. Verrà registrato appena torna il segnale.", "");
     vibra([120, 60, 120]);
   }
 
+  // Il riquadro NON si chiude da solo: resta lì finché non arriva
+  // la scansione successiva, così hai tutto il tempo di leggere il nome.
+  ultimoLettoTs = Date.now();
   timerRipresa = setTimeout(function () {
-    nascondiRisultato();
     if (scanner && scannerAttivo) scanner.resume();
     inCorso = false;
-  }, 1800);
+  }, 1000);
 }
 
 async function annullaUltimo() {
@@ -366,24 +385,27 @@ async function annullaUltimo() {
   try {
     const d = await chiamaApi({ action: "annulla", id: ultimoIngresso.id });
     mostraRisultato(d.ok ? "duplicato" : "errore", d.ok ? "↺" : "X",
-      d.ok ? "Ingresso annullato" : "Non riuscito", d.msg || "");
+      d.ok ? "Ingresso annullato" : "Non riuscito",
+      d.ok ? ultimoIngresso.nome : (d.msg || ""), "");
     ultimoIngresso = null;
   } catch (e) {
-    mostraRisultato("errore", "X", "Non riuscito", "Controlla il collegamento");
+    mostraRisultato("errore", "X", "Non riuscito", "Controlla il collegamento", "");
   }
 }
 
-function mostraRisultato(tipo, stato, nome, info) {
+function mostraRisultato(tipo, stato, nome, info, nato) {
   const box = document.getElementById("result-box");
   box.className = "result-box " + tipo;
   document.getElementById("res-stato").textContent = stato;
   document.getElementById("res-nome").textContent = nome || "";
   document.getElementById("res-info").textContent = info || "";
+  document.getElementById("res-nato").textContent = nato || "";
   document.getElementById("btn-annulla").style.display = "none";
 }
 
 function nascondiRisultato() {
   document.getElementById("result-box").style.display = "none";
+  document.getElementById("res-nato").textContent = "";
   document.getElementById("btn-annulla").style.display = "none";
 }
 
@@ -485,7 +507,7 @@ function renderLista(persone, aggiornaContatori) {
   const ordinati = persone.slice().sort(function (a, b) { return a.verificato - b.verificato; });
 
   cont.innerHTML = ordinati.map(function (p) {
-    const sotto = [p.turno, p.disciplina].filter(Boolean).join(" · ");
+    const sotto = [p.nascita, p.turno, p.disciplina].filter(Boolean).join(" · ");
     return '' +
       '<button class="persona-card ' + (p.verificato ? "entrato" : "") + '" ' +
               'onclick="gestisciPersona(\'' + esc(p.id) + '\')">' +
@@ -523,9 +545,10 @@ async function gestisciPersona(id) {
   if (!p) return;
 
   const azione = p.verificato ? "annulla" : "verify";
+  const chi = p.nome + (p.nascita ? " (nato il " + p.nascita + ")" : "");
   const domanda = p.verificato
-    ? "Annullare l'ingresso di " + p.nome + "?"
-    : "Registrare l'ingresso di " + p.nome + " senza QR?";
+    ? "Annullare l'ingresso di " + chi + "?"
+    : "Registrare l'ingresso di " + chi + " senza QR?";
   if (!confirm(domanda)) return;
 
   try {
