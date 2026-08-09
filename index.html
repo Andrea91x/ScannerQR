@@ -396,6 +396,9 @@ async function annullaUltimo() {
 function mostraRisultato(tipo, stato, nome, info, nato) {
   const box = document.getElementById("result-box");
   box.className = "result-box " + tipo;
+  // Serve esplicitamente: nascondiRisultato() scrive display:none direttamente
+  // sull'elemento, e quello vince sulla classe CSS finché non lo si riscrive.
+  box.style.display = "block";
   document.getElementById("res-stato").textContent = stato;
   document.getElementById("res-nome").textContent = nome || "";
   document.getElementById("res-info").textContent = info || "";
