@@ -339,6 +339,10 @@ function avviaScanner() {
   nascondiRisultato();
   attivaWakeLock();
 
+  // "Sveglia" Apps Script in anticipo: così la prima scansione trova il
+  // server già pronto, invece di aspettare il risveglio a freddo.
+  if (urlWebApp && token) chiamaApi({ action: "ping" }).catch(function () {});
+
   scanner = new Html5Qrcode("reader");
   scanner.start(
     { facingMode: "environment" },
@@ -725,7 +729,15 @@ async function testaConnessione() {
   messaggioConfig("Controllo in corso…", true);
   try {
     const d = await chiamaApi({ action: "ping" });
-    messaggioConfig(d.ok ? "Collegato: " + d.evento : (d.msg || "Risposta inattesa"), !!d.ok);
+    // Il server risponde con l'elenco eventi; mostriamo quanti ne trova
+    // così si capisce che il collegamento è davvero attivo.
+    let dettaglio = "";
+    if (Array.isArray(d.eventi)) {
+      dettaglio = d.eventi.length + (d.eventi.length === 1 ? " evento" : " eventi");
+    } else if (d.evento) {
+      dettaglio = d.evento;
+    }
+    messaggioConfig(d.ok ? "Collegato ✓ " + dettaglio : (d.msg || "Risposta inattesa"), !!d.ok);
   } catch (e) {
     messaggioConfig("Nessuna risposta. Controlla l'indirizzo e la connessione.", false);
   }
