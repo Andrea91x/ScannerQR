@@ -4,7 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Scanner Entrata — Firenze Rugby Subacqueo</title>
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<!-- Lettore QR: prima il file nella stessa cartella di questa pagina.
+     Se manca o non si carica, si ripiega su unpkg. -->
+<script src="html5-qrcode.min.js"></script>
+<script>
+  if (typeof Html5Qrcode === "undefined") {
+    document.write('<scr' + 'ipt src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"><\/scr' + 'ipt>');
+  }
+</script>
 <style>
   :root {
     --blu:     #0d1b35;
@@ -74,8 +81,14 @@
   }
   .result-box.ok        { background: var(--verde);  display: block; }
   .result-box.duplicato { background: var(--giallo); color: #1a1a1a; display: block; }
+  .result-box.avviso    { background: #b45309; display: block; }
   .result-box.errore    { background: var(--rosso);  display: block; }
   .result-box.attesa    { background: rgba(255,255,255,0.12); display: block; }
+  .result-box .evento {
+    font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px;
+    opacity: 0.85; margin-bottom: 8px;
+  }
+  .result-box .evento:empty { display: none; }
   .result-box .icona { font-size: 30px; margin-bottom: 4px; font-weight: 900; }
   .result-box .nome  { font-size: 27px; font-weight: 900; line-height: 1.15; margin-bottom: 6px; word-break: break-word; }
   .result-box .info  { font-size: 13px; opacity: 0.9; }
@@ -111,6 +124,18 @@
     border-radius: 10px; padding: 11px 14px; color: white; font-size: 14px; width: 100%; outline: none;
   }
   .search-box::placeholder { color: rgba(255,255,255,0.4); }
+  .filtri-evento { display: flex; gap: 6px; flex-wrap: wrap; }
+  .filtro-chip {
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.6); border-radius: 20px; padding: 6px 13px;
+    font-size: 11px; font-weight: 700; cursor: pointer; letter-spacing: 0.3px;
+  }
+  .filtro-chip.attivo { background: var(--arancio); border-color: var(--arancio); color: #fff; }
+  .persona-card .pevento {
+    font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px;
+    color: var(--arancio); margin-bottom: 2px;
+  }
+  .persona-card .pevento:empty { display: none; }
   .lista-scroll { overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 7px; }
   .persona-card {
     background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.08);
@@ -188,6 +213,7 @@
   </div>
   <div id="reader"></div>
   <div id="result-box" class="result-box">
+    <div class="evento" id="res-evento"></div>
     <div class="icona" id="res-stato"></div>
     <div class="nome" id="res-nome"></div>
     <div class="info" id="res-info"></div>
@@ -203,6 +229,7 @@
     <div class="stat-card verde"><div class="num" id="stat-ent">-</div><div class="lbl">Entrati</div></div>
     <div class="stat-card arancio"><div class="num" id="stat-att">-</div><div class="lbl">Attesa</div></div>
   </div>
+  <div class="filtri-evento" id="filtri-evento"></div>
   <input class="search-box" type="search" placeholder="Cerca nome..." oninput="filtraLista(this.value)">
   <div class="lista-scroll" id="lista-container">
     <div class="loading">Apri questa scheda per caricare l'elenco</div>
@@ -237,6 +264,7 @@ let scanner = null;
 let scannerAttivo = false;
 let inCorso = false;          // evita che lo stesso QR venga letto due volte
 let listaPersone = [];
+let filtroEvento = "";        // "" = tutti gli eventi
 let ultimoIngresso = null;    // per il tasto ANNULLA
 let ultimoIdLetto = "";       // ultimo QR letto, per non rileggerlo di continuo
 let ultimoLettoTs = 0;
@@ -296,6 +324,14 @@ function toggleScanner() {
 }
 
 function avviaScanner() {
+  if (typeof Html5Qrcode === "undefined") {
+    mostraRisultato({
+      tipo: "errore", stato: "!", nome: "Lettore QR non caricato",
+      info: "Ricarica la pagina con la rete attiva. Intanto usa la scheda PRESENZE per far entrare le persone cercandole per nome."
+    });
+    return;
+  }
+
   document.getElementById("btn-scan").textContent = "FERMA SCANNER";
   scannerAttivo = true;
   nascondiRisultato();
@@ -339,7 +375,7 @@ async function onQrScanSuccess(id) {
   try { await scanner.pause(true); } catch (e) {}
 
   vibra(80);
-  mostraRisultato("attesa", "…", "Verifica in corso", "", "");
+  mostraRisultato({ tipo: "attesa", stato: "…", nome: "Verifica in corso" });
 
   try {
     const d = await chiamaApi({ action: "verify", id: id });
@@ -347,15 +383,32 @@ async function onQrScanSuccess(id) {
     const nato = d.nascita ? "Nato il " + d.nascita : "";
 
     if (!d.ok) {
-      mostraRisultato("errore", "X", "QR non valido", d.msg || "", "");
+      mostraRisultato({ tipo: "errore", stato: "X", nome: "QR non valido", info: d.msg || "" });
       vibra([200, 80, 200]);
+
+    } else if (d.giornoSbagliato) {
+      // QR di un altro giorno: non registrato. Si può forzare da PRESENZE.
+      mostraRisultato({
+        tipo: "avviso", stato: "⚠", nome: d.nome, evento: d.evento,
+        info: "GIORNO SBAGLIATO — questo pass vale per " + (d.validoIl || "un'altra data"),
+        nato: nato
+      });
+      vibra([300, 100, 300]);
+
     } else if (d.duplicato) {
-      mostraRisultato("duplicato", "!", d.nome,
-        "GIÀ ENTRATO" + (d.orario ? " alle " + d.orario : "") +
-        (dettagli ? " · " + dettagli : ""), nato);
+      mostraRisultato({
+        tipo: "duplicato", stato: "!", nome: d.nome, evento: d.evento,
+        info: "GIÀ ENTRATO" + (d.orario ? " alle " + d.orario : "") +
+              (dettagli ? " · " + dettagli : ""),
+        nato: nato
+      });
       vibra([200, 80, 200]);
+
     } else {
-      mostraRisultato("ok", "✓", d.nome, dettagli, nato);
+      mostraRisultato({
+        tipo: "ok", stato: "✓", nome: d.nome, evento: d.evento,
+        info: dettagli, nato: nato
+      });
       ultimoIngresso = { id: id, nome: d.nome };
       document.getElementById("btn-annulla").style.display = "block";
       vibra([80, 40, 80]);
@@ -364,8 +417,10 @@ async function onQrScanSuccess(id) {
   } catch (e) {
     // Rete assente: la scansione non va persa, entra in coda e riparte da sola.
     accodaOffline(id);
-    mostraRisultato("duplicato", "⇄", "Salvato in coda",
-      "Rete assente. Verrà registrato appena torna il segnale.", "");
+    mostraRisultato({
+      tipo: "duplicato", stato: "⇄", nome: "Salvato in coda",
+      info: "Rete assente. Verrà registrato appena torna il segnale."
+    });
     vibra([120, 60, 120]);
   }
 
@@ -384,31 +439,36 @@ async function annullaUltimo() {
 
   try {
     const d = await chiamaApi({ action: "annulla", id: ultimoIngresso.id });
-    mostraRisultato(d.ok ? "duplicato" : "errore", d.ok ? "↺" : "X",
-      d.ok ? "Ingresso annullato" : "Non riuscito",
-      d.ok ? ultimoIngresso.nome : (d.msg || ""), "");
+    mostraRisultato({
+      tipo: d.ok ? "duplicato" : "errore",
+      stato: d.ok ? "↺" : "X",
+      nome: d.ok ? "Ingresso annullato" : "Non riuscito",
+      info: d.ok ? ultimoIngresso.nome : (d.msg || "")
+    });
     ultimoIngresso = null;
   } catch (e) {
-    mostraRisultato("errore", "X", "Non riuscito", "Controlla il collegamento", "");
+    mostraRisultato({ tipo: "errore", stato: "X", nome: "Non riuscito", info: "Controlla il collegamento" });
   }
 }
 
-function mostraRisultato(tipo, stato, nome, info, nato) {
+function mostraRisultato(r) {
   const box = document.getElementById("result-box");
-  box.className = "result-box " + tipo;
+  box.className = "result-box " + r.tipo;
   // Serve esplicitamente: nascondiRisultato() scrive display:none direttamente
   // sull'elemento, e quello vince sulla classe CSS finché non lo si riscrive.
   box.style.display = "block";
-  document.getElementById("res-stato").textContent = stato;
-  document.getElementById("res-nome").textContent = nome || "";
-  document.getElementById("res-info").textContent = info || "";
-  document.getElementById("res-nato").textContent = nato || "";
+  document.getElementById("res-evento").textContent = r.evento || "";
+  document.getElementById("res-stato").textContent  = r.stato  || "";
+  document.getElementById("res-nome").textContent   = r.nome   || "";
+  document.getElementById("res-info").textContent   = r.info   || "";
+  document.getElementById("res-nato").textContent   = r.nato   || "";
   document.getElementById("btn-annulla").style.display = "none";
 }
 
 function nascondiRisultato() {
   document.getElementById("result-box").style.display = "none";
   document.getElementById("res-nato").textContent = "";
+  document.getElementById("res-evento").textContent = "";
   document.getElementById("btn-annulla").style.display = "none";
 }
 
@@ -490,17 +550,47 @@ async function caricaLista() {
     }
     listaPersone = d;
     document.querySelector(".search-box").value = "";
-    renderLista(listaPersone);
+    renderFiltri();
+    aggiornaStat(personeEvento());
+    renderLista(personeEvento());
   } catch (e) {
     cont.innerHTML = '<div class="loading">Elenco non raggiungibile.<br>Controlla la connessione e riprova.</div>';
   }
 }
 
-// I contatori vanno calcolati sul totale, non sul filtro:
-// prima cercando "Rossi" comparivano "2 iscritti".
-function renderLista(persone, aggiornaContatori) {
-  if (aggiornaContatori !== false) aggiornaStat(persone);
+// I contatori seguono l'evento selezionato, non la ricerca per nome:
+// cercando "Rossi" comparivano "2 iscritti".
+function renderFiltri() {
+  const eventi = [];
+  listaPersone.forEach(function (p) {
+    if (p.evento && eventi.indexOf(p.evento) === -1) eventi.push(p.evento);
+  });
 
+  const cont = document.getElementById("filtri-evento");
+  if (eventi.length < 2) { cont.innerHTML = ""; return; }
+
+  cont.innerHTML =
+    '<button class="filtro-chip ' + (filtroEvento === "" ? "attivo" : "") + '" ' +
+            'onclick="impostaFiltroEvento(\'\')">TUTTI</button>' +
+    eventi.map(function (ev) {
+      return '<button class="filtro-chip ' + (filtroEvento === ev ? "attivo" : "") + '" ' +
+                     'onclick="impostaFiltroEvento(\'' + esc(ev) + '\')">' + esc(ev) + '</button>';
+    }).join("");
+}
+
+function impostaFiltroEvento(ev) {
+  filtroEvento = ev;
+  renderFiltri();
+  aggiornaStat(personeEvento());
+  filtraLista(document.querySelector(".search-box").value);
+}
+
+function personeEvento() {
+  if (!filtroEvento) return listaPersone;
+  return listaPersone.filter(function (p) { return p.evento === filtroEvento; });
+}
+
+function renderLista(persone) {
   const cont = document.getElementById("lista-container");
   if (!persone.length) {
     cont.innerHTML = '<div class="loading">Nessun nome corrisponde.</div>';
@@ -516,6 +606,7 @@ function renderLista(persone, aggiornaContatori) {
               'onclick="gestisciPersona(\'' + esc(p.id) + '\')">' +
         '<div class="badge">' + (p.verificato ? "✓" : "○") + '</div>' +
         '<div class="dati">' +
+          '<div class="pevento">' + esc(filtroEvento ? "" : (p.evento || "")) + '</div>' +
           '<div class="pnome">' + esc(p.nome || "—") + '</div>' +
           '<div class="pturno">' + esc(sotto) + (p.orario ? " · " + esc(p.orario) : "") + '</div>' +
         '</div>' +
@@ -534,11 +625,10 @@ function aggiornaStat(persone) {
 }
 
 function filtraLista(t) {
-  const q = t.toLowerCase();
-  const filtrati = listaPersone.filter(function (p) {
+  const q = (t || "").toLowerCase();
+  renderLista(personeEvento().filter(function (p) {
     return (p.nome || "").toLowerCase().includes(q);
-  });
-  renderLista(filtrati, false);
+  }));
 }
 
 // Ingresso manuale: serve quando la mail non è arrivata,
@@ -549,18 +639,21 @@ async function gestisciPersona(id) {
 
   const azione = p.verificato ? "annulla" : "verify";
   const chi = p.nome + (p.nascita ? " (nato il " + p.nascita + ")" : "");
+  const dove = p.evento ? "\nEvento: " + p.evento : "";
   const domanda = p.verificato
-    ? "Annullare l'ingresso di " + chi + "?"
-    : "Registrare l'ingresso di " + chi + " senza QR?";
+    ? "Annullare l'ingresso di " + chi + "?" + dove
+    : "Registrare l'ingresso di " + chi + " senza QR?" + dove;
   if (!confirm(domanda)) return;
 
   try {
-    const d = await chiamaApi({ action: azione, id: id });
+    // forza=1: l'ingresso manuale passa sopra al controllo del giorno,
+    // perché lo decide un volontario che ha la persona davanti.
+    const d = await chiamaApi({ action: azione, id: id, forza: "1" });
     if (d.ok) {
       p.verificato = (azione === "verify");
       p.orario = d.orario || "";
       vibra(80);
-      aggiornaStat(listaPersone);
+      aggiornaStat(personeEvento());
       filtraLista(document.querySelector(".search-box").value);
     } else {
       alert(d.msg || "Operazione non riuscita.");
