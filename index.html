@@ -218,6 +218,7 @@
     <div class="nome" id="res-nome"></div>
     <div class="info" id="res-info"></div>
     <div class="nato" id="res-nato"></div>
+    <button class="btn-annulla" id="btn-forza" onclick="forzaIngresso()">ACCETTA UGUALMENTE</button>
     <button class="btn-annulla" id="btn-annulla" onclick="annullaUltimo()">ANNULLA INGRESSO</button>
   </div>
   <button class="btn-scan" id="btn-scan" onclick="toggleScanner()">AVVIA SCANNER</button>
@@ -266,6 +267,7 @@ let inCorso = false;          // evita che lo stesso QR venga letto due volte
 let listaPersone = [];
 let filtroEvento = "";        // "" = tutti gli eventi
 let ultimoIngresso = null;    // per il tasto ANNULLA
+let idGiornoSbagliato = null; // QR del giorno sbagliato in attesa di conferma
 let ultimoIdLetto = "";       // ultimo QR letto, per non rileggerlo di continuo
 let ultimoLettoTs = 0;
 let wakeLock = null;
@@ -387,12 +389,15 @@ async function onQrScanSuccess(id) {
       vibra([200, 80, 200]);
 
     } else if (d.giornoSbagliato) {
-      // QR di un altro giorno: non registrato. Si può forzare da PRESENZE.
+      // QR di un altro giorno: non registrato. Si può forzare col pulsante
+      // qui sotto (utile per le prove) o dalla scheda PRESENZE.
+      idGiornoSbagliato = id;
       mostraRisultato({
         tipo: "avviso", stato: "⚠", nome: d.nome, evento: d.evento,
         info: "GIORNO SBAGLIATO — questo pass vale per " + (d.validoIl || "un'altra data"),
         nato: nato
       });
+      document.getElementById("btn-forza").style.display = "block";
       vibra([300, 100, 300]);
 
     } else if (d.duplicato) {
@@ -433,6 +438,45 @@ async function onQrScanSuccess(id) {
   }, 1000);
 }
 
+async function forzaIngresso() {
+  if (!idGiornoSbagliato) return;
+  const id = idGiornoSbagliato;
+  idGiornoSbagliato = null;
+
+  clearTimeout(timerRipresa);
+  inCorso = true;
+  try { await scanner.pause(true); } catch (e) {}
+
+  mostraRisultato({ tipo: "attesa", stato: "…", nome: "Registro l'ingresso" });
+
+  try {
+    // forza=1 salta il controllo del giorno e registra l'ingresso.
+    const d = await chiamaApi({ action: "verify", id: id, forza: "1" });
+    const dettagli = [d.turno, d.disciplina].filter(Boolean).join(" · ");
+    const nato = d.nascita ? "Nato il " + d.nascita : "";
+
+    if (d.duplicato) {
+      mostraRisultato({ tipo: "duplicato", stato: "!", nome: d.nome, evento: d.evento,
+        info: "GIÀ ENTRATO" + (d.orario ? " alle " + d.orario : ""), nato: nato });
+    } else {
+      mostraRisultato({ tipo: "ok", stato: "✓", nome: d.nome, evento: d.evento,
+        info: dettagli, nato: nato });
+      ultimoIngresso = { id: id, nome: d.nome };
+      document.getElementById("btn-annulla").style.display = "block";
+      vibra([80, 40, 80]);
+    }
+  } catch (e) {
+    accodaOffline(id);
+    mostraRisultato({ tipo: "duplicato", stato: "⇄", nome: "Salvato in coda",
+      info: "Rete assente. Verrà registrato appena torna il segnale." });
+  }
+
+  timerRipresa = setTimeout(function () {
+    if (scanner && scannerAttivo) scanner.resume();
+    inCorso = false;
+  }, 1000);
+}
+
 async function annullaUltimo() {
   if (!ultimoIngresso) return;
   if (!confirm("Annullare l'ingresso di " + ultimoIngresso.nome + "?")) return;
@@ -463,6 +507,7 @@ function mostraRisultato(r) {
   document.getElementById("res-info").textContent   = r.info   || "";
   document.getElementById("res-nato").textContent   = r.nato   || "";
   document.getElementById("btn-annulla").style.display = "none";
+  document.getElementById("btn-forza").style.display = "none";
 }
 
 function nascondiRisultato() {
@@ -470,6 +515,7 @@ function nascondiRisultato() {
   document.getElementById("res-nato").textContent = "";
   document.getElementById("res-evento").textContent = "";
   document.getElementById("btn-annulla").style.display = "none";
+  document.getElementById("btn-forza").style.display = "none";
 }
 
 // ============================================================
