@@ -339,10 +339,36 @@ function esc(v) {
   });
 }
 
+// Due guasti diversi che prima finivano nello stesso messaggio:
+//  - "rete": il telefono non è riuscito nemmeno a parlare col server.
+//            La scansione va messa in coda e ritentata.
+//  - "server": il server ha risposto, ma non con del JSON (di solito
+//            una pagina di errore di Apps Script). Rimettere in coda non
+//            serve a niente: va letto l'errore. Dirgli "manca la rete"
+//            manda il volontario a cercare il WiFi per un'ora.
 async function chiamaApi(params) {
   const q = new URLSearchParams(Object.assign({ token: token }, params));
-  const res = await fetch(urlWebApp + "?" + q.toString());
-  return await res.json();
+
+  let res;
+  try {
+    res = await fetch(urlWebApp + "?" + q.toString());
+  } catch (e) {
+    const err = new Error("Nessun collegamento col server");
+    err.tipo = "rete";
+    throw err;
+  }
+
+  const testo = await res.text();
+  try {
+    return JSON.parse(testo);
+  } catch (e) {
+    // Le prime righe della risposta dicono quasi sempre cos'è successo:
+    // le stampo in console per poterle leggere se serve indagare.
+    console.error("Risposta non JSON (HTTP " + res.status + "):", testo.slice(0, 500));
+    const err = new Error("Il server ha risposto male (HTTP " + res.status + ")");
+    err.tipo = "server";
+    throw err;
+  }
 }
 
 function vibra(pattern) {
@@ -488,13 +514,24 @@ async function onQrScanSuccess(id) {
     gestisciRisposta(d, id);
 
   } catch (e) {
-    // Rete assente: la scansione non va persa, entra in coda e riparte da sola.
-    accodaOffline(id, modalitaAttuale);
-    mostraRisultato({
-      tipo: "duplicato", stato: "⇄", nome: "Salvato in coda",
-      info: "Rete assente. Verrà registrato appena torna il segnale."
-    });
-    vibra([120, 60, 120]);
+    if (e.tipo === "server") {
+      // Il server c'è ma qualcosa non va nel foglio o nello script:
+      // rimettere in coda non risolverebbe, va letto l'errore.
+      mostraRisultato({
+        tipo: "errore", stato: "!", nome: "Errore del server",
+        info: e.message + " — controlla il foglio, non la connessione."
+      });
+      vibra([200, 80, 200]);
+    } else {
+      // Rete assente davvero: la scansione non va persa, entra in coda
+      // e riparte da sola.
+      accodaOffline(id, modalitaAttuale);
+      mostraRisultato({
+        tipo: "duplicato", stato: "⇄", nome: "Salvato in coda",
+        info: "Rete assente. Verrà registrato appena torna il segnale."
+      });
+      vibra([120, 60, 120]);
+    }
   }
 
   // Il riquadro NON si chiude da solo: resta lì finché non arriva
@@ -701,7 +738,9 @@ async function svuotaCoda(manuale) {
       // Ritento solo se la richiesta stessa fallisce (rete assente),
       // altrimenti una scansione non valida resterebbe in coda per sempre.
     } catch (e) {
-      rimaste.push(voce);
+      // Solo un guasto di rete merita un altro tentativo: se il server
+      // risponde male, riprovare all'infinito non cambia niente.
+      if (e.tipo !== "server") rimaste.push(voce);
     }
   }
 
@@ -764,7 +803,9 @@ async function caricaLista() {
     aggiornaStat(personeEvento());
     renderLista(personeEvento());
   } catch (e) {
-    cont.innerHTML = '<div class="loading">Elenco non raggiungibile.<br>Controlla la connessione e riprova.</div>';
+    cont.innerHTML = '<div class="loading">' + (e.tipo === "server"
+      ? esc(e.message) + '<br>Il server risponde ma qualcosa non va: controlla il foglio.'
+      : 'Elenco non raggiungibile.<br>Controlla la connessione e riprova.') + '</div>';
   }
 }
 
@@ -873,7 +914,9 @@ async function gestisciPersona(id) {
         alert(d.msg || "Operazione non riuscita.");
       }
     } catch (e) {
-      alert("Nessuna connessione. Riprova fra poco.");
+      alert(e.tipo === "server"
+        ? e.message + "\nIl server risponde ma qualcosa non va nel foglio."
+        : "Nessuna connessione. Riprova fra poco.");
     }
     return;
   }
@@ -937,7 +980,9 @@ async function testaConnessione() {
       popolaSelectModalita(sportDisponibili);
     }
   } catch (e) {
-    messaggioConfig("Nessuna risposta. Controlla l'indirizzo e la connessione.", false);
+    messaggioConfig(e.tipo === "server"
+      ? e.message + " — di solito è un errore dentro lo script."
+      : "Nessuna risposta. Controlla l'indirizzo e la connessione.", false);
   }
 }
 
