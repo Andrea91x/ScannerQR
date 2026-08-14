@@ -557,7 +557,8 @@ function gestisciRisposta(d, id) {
     } else if (d.duplicato) {
       mostraRisultato({
         tipo: "duplicato", stato: "!", nome: d.nome, evento: d.evento,
-        info: "GIÀ PROVATO" + (d.orario ? " alle " + d.orario : "") + " · " + d.sport
+        info: "GIÀ PROVATO" + (d.orario ? " alle " + d.orario : "") + " · " + d.sport +
+              (d.ingressoOra ? " · ingresso registrato ora" : "")
       });
       vibra([200, 80, 200]);
 
@@ -565,7 +566,7 @@ function gestisciRisposta(d, id) {
       mostraRisultato({
         tipo: "ok", stato: "✓", nome: d.nome, evento: d.evento,
         info: "Prova registrata · " + d.sport +
-              (d.nonEntrato ? " · non risulta ancora entrato" : "")
+              (d.ingressoOra ? " · ingresso registrato ora (non risultava)" : "")
       });
       ultimaAzione = { id: id, nome: d.nome, sport: d.sport };
       impostaBottoneAnnulla("PROVA");
