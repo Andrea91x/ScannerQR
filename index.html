@@ -51,6 +51,15 @@
   .page { display: none; flex: 1; flex-direction: column; padding: 14px; gap: 12px; }
   .page.active { display: flex; }
 
+  /* Pillola con la modalità attuale (Ingresso / Banco: sport). Tap per
+     andare alla scheda CONFIG e cambiarla. */
+  .banda-modalita {
+    text-align: center; font-size: 11px; font-weight: 800; letter-spacing: 1px;
+    color: var(--arancio); background: rgba(232,81,26,0.12);
+    border: 1px solid rgba(232,81,26,0.35); border-radius: 20px;
+    padding: 8px 10px; cursor: pointer;
+  }
+
   /* Banner della coda offline */
   .banner-coda {
     display: none; align-items: center; gap: 10px;
@@ -105,7 +114,7 @@
   }
   .btn-scan {
     background: var(--arancio); color: white; border: none;
-    border-radius: 12px; padding: 15px; font-size: 16px; font-weight: 800;
+    border-radius: 12px; padding: 15px; font-size: 15px; font-weight: 800;
     cursor: pointer; width: 100%; letter-spacing: 0.5px;
     box-shadow: 0 4px 16px rgba(232,81,26,0.4); transition: opacity 0.15s;
   }
@@ -168,6 +177,10 @@
     border-radius: 10px; padding: 12px 14px; color: white; font-size: 13px; width: 100%; outline: none;
   }
   .setting-input::placeholder { color: rgba(255,255,255,0.3); }
+  select.setting-input {
+    -webkit-appearance: none; appearance: none;
+  }
+  select.setting-input option { background: var(--blu2); color: white; }
   .btn-salva {
     background: var(--arancio); border: none; border-radius: 10px; color: white;
     padding: 14px; font-size: 15px; font-weight: 800; cursor: pointer; width: 100%;
@@ -207,6 +220,7 @@
 </div>
 
 <div id="tab-scanner" class="page active">
+  <div class="banda-modalita" id="banda-modalita" onclick="switchTab('impostazioni')"></div>
   <div class="banner-coda" id="banner-coda">
     <span id="testo-coda"></span>
     <button onclick="svuotaCoda(true)">RIPROVA</button>
@@ -219,7 +233,7 @@
     <div class="info" id="res-info"></div>
     <div class="nato" id="res-nato"></div>
     <button class="btn-annulla" id="btn-forza" onclick="forzaIngresso()">ACCETTA UGUALMENTE</button>
-    <button class="btn-annulla" id="btn-annulla" onclick="annullaUltimo()">ANNULLA INGRESSO</button>
+    <button class="btn-annulla" id="btn-annulla" onclick="annullaUltimo()">ANNULLA</button>
   </div>
   <button class="btn-scan" id="btn-scan" onclick="toggleScanner()">AVVIA SCANNER</button>
 </div>
@@ -227,8 +241,8 @@
 <div id="tab-lista" class="page">
   <div class="stats">
     <div class="stat-card"><div class="num" id="stat-tot">-</div><div class="lbl">Iscritti</div></div>
-    <div class="stat-card verde"><div class="num" id="stat-ent">-</div><div class="lbl">Entrati</div></div>
-    <div class="stat-card arancio"><div class="num" id="stat-att">-</div><div class="lbl">Attesa</div></div>
+    <div class="stat-card verde"><div class="num" id="stat-ent">-</div><div class="lbl" id="lbl-ent">Entrati</div></div>
+    <div class="stat-card arancio"><div class="num" id="stat-att">-</div><div class="lbl" id="lbl-att">Attesa</div></div>
   </div>
   <div class="filtri-evento" id="filtri-evento"></div>
   <input class="search-box" type="search" placeholder="Cerca nome..." oninput="filtraLista(this.value)">
@@ -255,6 +269,19 @@
   <button class="btn-salva" onclick="salvaConfig()">SALVA</button>
   <button class="btn-test" onclick="testaConnessione()">VERIFICA COLLEGAMENTO</button>
   <div class="msg-config" id="msg-config"></div>
+
+  <div class="istruzioni">
+    <b>Dove si trova questo telefono</b><br>
+    Scegli "Ingresso" se controlla i pass all'entrata, oppure il banco di uno sport
+    se sta facendo provare quello sport. La scelta resta salvata su questo telefono:
+    non serve rifarla a ogni scansione, solo quando lo spostate.
+  </div>
+  <div>
+    <label class="setting-label" for="webapp-modalita">Modalità</label>
+    <select class="setting-input" id="webapp-modalita" onchange="salvaModalita()">
+      <option value="">Ingresso (check-in)</option>
+    </select>
+  </div>
 </div>
 
 <script>
@@ -266,8 +293,8 @@ let scannerAttivo = false;
 let inCorso = false;          // evita che lo stesso QR venga letto due volte
 let listaPersone = [];
 let filtroEvento = "";        // "" = tutti gli eventi
-let ultimoIngresso = null;    // per il tasto ANNULLA
-let idGiornoSbagliato = null; // QR del giorno sbagliato in attesa di conferma
+let ultimaAzione = null;      // per il tasto ANNULLA: { id, nome, sport? }
+let idGiornoSbagliato = null; // QR del giorno sbagliato in attesa di conferma (solo ingresso)
 let ultimoIdLetto = "";       // ultimo QR letto, per non rileggerlo di continuo
 let ultimoLettoTs = 0;
 let wakeLock = null;
@@ -275,11 +302,33 @@ let timerRipresa = null;
 
 let urlWebApp = localStorage.getItem("webapp_url")   || "";
 let token     = localStorage.getItem("webapp_token") || "";
-let coda      = JSON.parse(localStorage.getItem("coda_offline") || "[]");
+
+// Modalità: "" = Ingresso (check-in). Altrimenti il nome esatto di uno
+// sport in CONFIG.SPORT = questo telefono è al banco di quello sport,
+// e ogni scansione registra una prova invece di un ingresso.
+let modalitaAttuale = localStorage.getItem("modalita") || "";
+
+// Elenco sport per riempire il menu Modalità: tenuto in cache, così il
+// menu si popola anche senza rete, poi si aggiorna da solo appena
+// possibile (funzione aggiornaSportDisponibili più sotto).
+let sportDisponibili = JSON.parse(localStorage.getItem("sport_cache") || "[]");
+
+// Coda offline: un oggetto per voce, non solo l'id, perché una prova
+// in coda va ritentata con l'azione e lo sport giusti anche se nel
+// frattempo il telefono cambia modalità. Con le versioni vecchie della
+// pagina la coda conteneva solo stringhe: le converto al volo.
+let coda = (JSON.parse(localStorage.getItem("coda_offline") || "[]")).map(function (v) {
+  return (typeof v === "string") ? { id: v, sport: "" } : v;
+});
 
 document.getElementById("webapp-url").value   = urlWebApp;
 document.getElementById("webapp-token").value = token;
+popolaSelectModalita(sportDisponibili);
+document.getElementById("webapp-modalita").value = modalitaAttuale;
 aggiornaBannerCoda();
+aggiornaBadgeModalita();
+aggiornaEtichetteStat();
+if (urlWebApp && token) aggiornaSportDisponibili();
 
 // ============================================================
 //  UTILITÀ
@@ -314,6 +363,54 @@ function switchTab(nome) {
 }
 
 // ============================================================
+//  MODALITÀ (Ingresso / Banco di uno sport)
+// ============================================================
+function popolaSelectModalita(sportList) {
+  const sel = document.getElementById("webapp-modalita");
+  const attuale = sel.value || modalitaAttuale;
+  sel.innerHTML = '<option value="">Ingresso (check-in)</option>' +
+    sportList.map(function (s) {
+      return '<option value="' + esc(s) + '">Banco: ' + esc(s) + '</option>';
+    }).join("");
+  sel.value = attuale;
+}
+
+async function aggiornaSportDisponibili() {
+  try {
+    const d = await chiamaApi({ action: "ping" });
+    if (d.ok && Array.isArray(d.sport)) {
+      sportDisponibili = d.sport;
+      localStorage.setItem("sport_cache", JSON.stringify(sportDisponibili));
+      popolaSelectModalita(sportDisponibili);
+    }
+  } catch (e) { /* offline: resta la lista già in cache */ }
+}
+
+function salvaModalita() {
+  modalitaAttuale = document.getElementById("webapp-modalita").value;
+  localStorage.setItem("modalita", modalitaAttuale);
+  listaPersone = [];   // la scheda PRESENZE ricarica in base alla nuova modalità
+  aggiornaBadgeModalita();
+  aggiornaEtichetteStat();
+}
+
+function etichettaModalita() {
+  return modalitaAttuale ? "Banco · " + modalitaAttuale : "Ingresso";
+}
+
+function aggiornaBadgeModalita() {
+  const testo = etichettaModalita().toUpperCase();
+  document.getElementById("banda-modalita").textContent = testo;
+  document.getElementById("btn-scan").textContent =
+    (scannerAttivo ? "FERMA SCANNER" : "AVVIA SCANNER") + " — " + testo;
+}
+
+function aggiornaEtichetteStat() {
+  document.getElementById("lbl-ent").textContent = modalitaAttuale ? "Provato" : "Entrati";
+  document.getElementById("lbl-att").textContent = modalitaAttuale ? "Da provare" : "Attesa";
+}
+
+// ============================================================
 //  SCANNER
 // ============================================================
 function toggleScanner() {
@@ -329,13 +426,13 @@ function avviaScanner() {
   if (typeof Html5Qrcode === "undefined") {
     mostraRisultato({
       tipo: "errore", stato: "!", nome: "Lettore QR non caricato",
-      info: "Ricarica la pagina con la rete attiva. Intanto usa la scheda PRESENZE per far entrare le persone cercandole per nome."
+      info: "Ricarica la pagina con la rete attiva. Intanto usa la scheda PRESENZE per registrare le persone cercandole per nome."
     });
     return;
   }
 
-  document.getElementById("btn-scan").textContent = "FERMA SCANNER";
   scannerAttivo = true;
+  aggiornaBadgeModalita();
   nascondiRisultato();
   attivaWakeLock();
 
@@ -361,8 +458,8 @@ function fermaScanner() {
   if (scanner) {
     scanner.stop().then(function () { scanner = null; }).catch(function () { scanner = null; });
   }
-  document.getElementById("btn-scan").textContent = "AVVIA SCANNER";
   scannerAttivo = false;
+  aggiornaBadgeModalita();
   rilasciaWakeLock();
 }
 
@@ -384,48 +481,15 @@ async function onQrScanSuccess(id) {
   mostraRisultato({ tipo: "attesa", stato: "…", nome: "Verifica in corso" });
 
   try {
-    const d = await chiamaApi({ action: "verify", id: id });
-    const dettagli = [d.turno, d.disciplina].filter(Boolean).join(" · ");
-    const nato = d.nascita ? "Nato il " + d.nascita : "";
+    const d = modalitaAttuale
+      ? await chiamaApi({ action: "prova", id: id, sport: modalitaAttuale })
+      : await chiamaApi({ action: "verify", id: id });
 
-    if (!d.ok) {
-      mostraRisultato({ tipo: "errore", stato: "X", nome: "QR non valido", info: d.msg || "" });
-      vibra([200, 80, 200]);
-
-    } else if (d.giornoSbagliato) {
-      // QR di un altro giorno: non registrato. Si può forzare col pulsante
-      // qui sotto (utile per le prove) o dalla scheda PRESENZE.
-      idGiornoSbagliato = id;
-      mostraRisultato({
-        tipo: "avviso", stato: "⚠", nome: d.nome, evento: d.evento,
-        info: "GIORNO SBAGLIATO — questo pass vale per " + (d.validoIl || "un'altra data"),
-        nato: nato
-      });
-      document.getElementById("btn-forza").style.display = "block";
-      vibra([300, 100, 300]);
-
-    } else if (d.duplicato) {
-      mostraRisultato({
-        tipo: "duplicato", stato: "!", nome: d.nome, evento: d.evento,
-        info: "GIÀ ENTRATO" + (d.orario ? " alle " + d.orario : "") +
-              (dettagli ? " · " + dettagli : ""),
-        nato: nato
-      });
-      vibra([200, 80, 200]);
-
-    } else {
-      mostraRisultato({
-        tipo: "ok", stato: "✓", nome: d.nome, evento: d.evento,
-        info: dettagli, nato: nato
-      });
-      ultimoIngresso = { id: id, nome: d.nome };
-      document.getElementById("btn-annulla").style.display = "block";
-      vibra([80, 40, 80]);
-    }
+    gestisciRisposta(d, id);
 
   } catch (e) {
     // Rete assente: la scansione non va persa, entra in coda e riparte da sola.
-    accodaOffline(id);
+    accodaOffline(id, modalitaAttuale);
     mostraRisultato({
       tipo: "duplicato", stato: "⇄", nome: "Salvato in coda",
       info: "Rete assente. Verrà registrato appena torna il segnale."
@@ -440,6 +504,77 @@ async function onQrScanSuccess(id) {
     if (scanner && scannerAttivo) scanner.resume();
     inCorso = false;
   }, 1000);
+}
+
+// Interpreta la risposta del server e aggiorna il riquadro, con testi
+// diversi a seconda che il telefono sia all'Ingresso o al Banco di uno
+// sport — ma è la STESSA funzione per entrambi i casi, per non
+// duplicare la logica di visualizzazione.
+function gestisciRisposta(d, id) {
+  if (modalitaAttuale) {
+    // ---- Modalità BANCO: registra una prova, non un ingresso. ----
+    if (!d.ok) {
+      mostraRisultato({ tipo: "errore", stato: "X", nome: "QR non valido", info: d.msg || "" });
+      vibra([200, 80, 200]);
+
+    } else if (d.duplicato) {
+      mostraRisultato({
+        tipo: "duplicato", stato: "!", nome: d.nome, evento: d.evento,
+        info: "GIÀ PROVATO" + (d.orario ? " alle " + d.orario : "") + " · " + d.sport
+      });
+      vibra([200, 80, 200]);
+
+    } else {
+      mostraRisultato({
+        tipo: "ok", stato: "✓", nome: d.nome, evento: d.evento,
+        info: "Prova registrata · " + d.sport +
+              (d.nonEntrato ? " · non risulta ancora entrato" : "")
+      });
+      ultimaAzione = { id: id, nome: d.nome, sport: d.sport };
+      impostaBottoneAnnulla("PROVA");
+      vibra([80, 40, 80]);
+    }
+    return;
+  }
+
+  // ---- Modalità INGRESSO: comportamento originale. ----
+  const dettagli = [d.turno, d.disciplina].filter(Boolean).join(" · ");
+  const nato = d.nascita ? "Nato il " + d.nascita : "";
+
+  if (!d.ok) {
+    mostraRisultato({ tipo: "errore", stato: "X", nome: "QR non valido", info: d.msg || "" });
+    vibra([200, 80, 200]);
+
+  } else if (d.giornoSbagliato) {
+    // QR di un altro giorno: non registrato. Si può forzare col pulsante
+    // qui sotto (utile per le prove) o dalla scheda PRESENZE.
+    idGiornoSbagliato = id;
+    mostraRisultato({
+      tipo: "avviso", stato: "⚠", nome: d.nome, evento: d.evento,
+      info: "GIORNO SBAGLIATO — questo pass vale per " + (d.validoIl || "un'altra data"),
+      nato: nato
+    });
+    document.getElementById("btn-forza").style.display = "block";
+    vibra([300, 100, 300]);
+
+  } else if (d.duplicato) {
+    mostraRisultato({
+      tipo: "duplicato", stato: "!", nome: d.nome, evento: d.evento,
+      info: "GIÀ ENTRATO" + (d.orario ? " alle " + d.orario : "") +
+            (dettagli ? " · " + dettagli : ""),
+      nato: nato
+    });
+    vibra([200, 80, 200]);
+
+  } else {
+    mostraRisultato({
+      tipo: "ok", stato: "✓", nome: d.nome, evento: d.evento,
+      info: dettagli, nato: nato
+    });
+    ultimaAzione = { id: id, nome: d.nome };
+    impostaBottoneAnnulla("INGRESSO");
+    vibra([80, 40, 80]);
+  }
 }
 
 async function forzaIngresso() {
@@ -465,12 +600,12 @@ async function forzaIngresso() {
     } else {
       mostraRisultato({ tipo: "ok", stato: "✓", nome: d.nome, evento: d.evento,
         info: dettagli, nato: nato });
-      ultimoIngresso = { id: id, nome: d.nome };
-      document.getElementById("btn-annulla").style.display = "block";
+      ultimaAzione = { id: id, nome: d.nome };
+      impostaBottoneAnnulla("INGRESSO");
       vibra([80, 40, 80]);
     }
   } catch (e) {
-    accodaOffline(id);
+    accodaOffline(id, "");
     mostraRisultato({ tipo: "duplicato", stato: "⇄", nome: "Salvato in coda",
       info: "Rete assente. Verrà registrato appena torna il segnale." });
   }
@@ -482,21 +617,31 @@ async function forzaIngresso() {
 }
 
 async function annullaUltimo() {
-  if (!ultimoIngresso) return;
-  if (!confirm("Annullare l'ingresso di " + ultimoIngresso.nome + "?")) return;
+  if (!ultimaAzione) return;
+  const chi = ultimaAzione.nome + (ultimaAzione.sport ? " — " + ultimaAzione.sport : "");
+  if (!confirm("Annullare per " + chi + "?")) return;
 
   try {
-    const d = await chiamaApi({ action: "annulla", id: ultimoIngresso.id });
+    const d = ultimaAzione.sport
+      ? await chiamaApi({ action: "annullaProva", id: ultimaAzione.id, sport: ultimaAzione.sport })
+      : await chiamaApi({ action: "annulla", id: ultimaAzione.id });
+
     mostraRisultato({
       tipo: d.ok ? "duplicato" : "errore",
       stato: d.ok ? "↺" : "X",
-      nome: d.ok ? "Ingresso annullato" : "Non riuscito",
-      info: d.ok ? ultimoIngresso.nome : (d.msg || "")
+      nome: d.ok ? "Annullato" : "Non riuscito",
+      info: d.ok ? chi : (d.msg || "")
     });
-    ultimoIngresso = null;
+    ultimaAzione = null;
   } catch (e) {
     mostraRisultato({ tipo: "errore", stato: "X", nome: "Non riuscito", info: "Controlla il collegamento" });
   }
+}
+
+function impostaBottoneAnnulla(tipo) {
+  const btn = document.getElementById("btn-annulla");
+  btn.textContent = tipo === "PROVA" ? "ANNULLA PROVA" : "ANNULLA INGRESSO";
+  btn.style.display = "block";
 }
 
 function mostraRisultato(r) {
@@ -525,8 +670,13 @@ function nascondiRisultato() {
 // ============================================================
 //  CODA OFFLINE
 // ============================================================
-function accodaOffline(id) {
-  if (coda.indexOf(id) === -1) coda.push(id);
+// Ogni voce ricorda anche lo sport (vuoto = ingresso), così quando la
+// coda si svuota ogni scansione viene ritentata con l'azione giusta
+// anche se nel frattempo il telefono ha cambiato modalità.
+function accodaOffline(id, sport) {
+  const s = sport || "";
+  const esiste = coda.some(function (v) { return v.id === id && v.sport === s; });
+  if (!esiste) coda.push({ id: id, sport: s });
   localStorage.setItem("coda_offline", JSON.stringify(coda));
   aggiornaBannerCoda();
 }
@@ -542,12 +692,16 @@ async function svuotaCoda(manuale) {
   if (!coda.length || !urlWebApp || !token) return;
   const rimaste = [];
 
-  for (const id of coda) {
+  for (const voce of coda) {
     try {
-      const d = await chiamaApi({ action: "verify", id: id });
-      if (!d || (!d.ok && d.msg === undefined)) rimaste.push(id);
+      voce.sport
+        ? await chiamaApi({ action: "prova", id: voce.id, sport: voce.sport })
+        : await chiamaApi({ action: "verify", id: voce.id });
+      // Una risposta è arrivata (qualunque esito): non la ritento più.
+      // Ritento solo se la richiesta stessa fallisce (rete assente),
+      // altrimenti una scansione non valida resterebbe in coda per sempre.
     } catch (e) {
-      rimaste.push(id);
+      rimaste.push(voce);
     }
   }
 
@@ -593,7 +747,13 @@ async function caricaLista() {
   cont.innerHTML = '<div class="loading">Caricamento…</div>';
 
   try {
-    const d = await chiamaApi({ action: "list" });
+    // In modalità Banco l'elenco arriva già con la spunta di QUESTO
+    // sport (getListaBanco sul server); in modalità Ingresso è
+    // l'elenco con lo stato di ingresso di sempre.
+    const d = modalitaAttuale
+      ? await chiamaApi({ action: "listaBanco", sport: modalitaAttuale })
+      : await chiamaApi({ action: "list" });
+
     if (!Array.isArray(d)) {
       cont.innerHTML = '<div class="loading">' + esc(d.msg || "Risposta non valida") + '</div>';
       return;
@@ -647,6 +807,9 @@ function renderLista(persone) {
     return;
   }
 
+  const etSi = modalitaAttuale ? "Provato" : "Entrato";
+  const etNo = modalitaAttuale ? "Da provare" : "Attesa";
+
   const ordinati = persone.slice().sort(function (a, b) { return a.verificato - b.verificato; });
 
   cont.innerHTML = ordinati.map(function (p) {
@@ -661,7 +824,7 @@ function renderLista(persone) {
           '<div class="pturno">' + esc(sotto) + (p.orario ? " · " + esc(p.orario) : "") + '</div>' +
         '</div>' +
         '<span class="chip ' + (p.verificato ? "si" : "no") + '">' +
-          (p.verificato ? "Entrato" : "Attesa") +
+          (p.verificato ? etSi : etNo) +
         '</span>' +
       '</button>';
   }).join("");
@@ -681,11 +844,39 @@ function filtraLista(t) {
   }));
 }
 
-// Ingresso manuale: serve quando la mail non è arrivata,
-// il telefono è scarico o il QR non si legge.
+// Registrazione manuale: serve quando il QR non si legge, il telefono
+// della persona è scarico o non è arrivata la mail. Il comportamento
+// dipende dalla modalità: in Banco registra/annulla una prova, in
+// Ingresso registra/annulla l'ingresso — come faceva sempre.
 async function gestisciPersona(id) {
   const p = listaPersone.find(function (x) { return String(x.id) === String(id); });
   if (!p) return;
+
+  if (modalitaAttuale) {
+    const chi = p.nome + " — " + modalitaAttuale;
+    const domanda = p.verificato
+      ? "Annullare la prova di " + chi + "?"
+      : "Registrare la prova di " + chi + "?";
+    if (!confirm(domanda)) return;
+
+    try {
+      const d = p.verificato
+        ? await chiamaApi({ action: "annullaProva", id: id, sport: modalitaAttuale })
+        : await chiamaApi({ action: "prova", id: id, sport: modalitaAttuale });
+      if (d.ok) {
+        p.verificato = !p.verificato;
+        p.orario = d.orario || "";
+        vibra(80);
+        aggiornaStat(personeEvento());
+        filtraLista(document.querySelector(".search-box").value);
+      } else {
+        alert(d.msg || "Operazione non riuscita.");
+      }
+    } catch (e) {
+      alert("Nessuna connessione. Riprova fra poco.");
+    }
+    return;
+  }
 
   const azione = p.verificato ? "annulla" : "verify";
   const chi = p.nome + (p.nascita ? " (nato il " + p.nascita + ")" : "");
@@ -722,6 +913,7 @@ function salvaConfig() {
   localStorage.setItem("webapp_url", urlWebApp);
   localStorage.setItem("webapp_token", token);
   messaggioConfig("Salvato.", true);
+  aggiornaSportDisponibili();
 }
 
 async function testaConnessione() {
@@ -738,6 +930,12 @@ async function testaConnessione() {
       dettaglio = d.evento;
     }
     messaggioConfig(d.ok ? "Collegato ✓ " + dettaglio : (d.msg || "Risposta inattesa"), !!d.ok);
+
+    if (d.ok && Array.isArray(d.sport)) {
+      sportDisponibili = d.sport;
+      localStorage.setItem("sport_cache", JSON.stringify(sportDisponibili));
+      popolaSelectModalita(sportDisponibili);
+    }
   } catch (e) {
     messaggioConfig("Nessuna risposta. Controlla l'indirizzo e la connessione.", false);
   }
