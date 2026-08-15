@@ -375,6 +375,19 @@ function vibra(pattern) {
   if (navigator.vibrate) navigator.vibrate(pattern);
 }
 
+// Con più telefoni che scansionano nello stesso istante, il foglio può
+// rispondere "Sistema occupato, riprova": non è un errore della persona
+// o del QR, è solo la fila su un'unica risorsa condivisa (vedi lock nel
+// backend) che in quel momento è più lunga del solito. Ritento UNA volta
+// da solo, in silenzio, prima di disturbare il volontario: la maggior
+// parte delle volte la fila si è già sciolta un secondo dopo.
+async function chiamaApiRiprova(params) {
+  const prima = await chiamaApi(params);
+  if (prima.ok !== false || prima.msg !== "Sistema occupato, riprova") return prima;
+  await new Promise(r => setTimeout(r, 1200));
+  return await chiamaApi(params);
+}
+
 // ============================================================
 //  SCHEDE
 // ============================================================
@@ -508,8 +521,8 @@ async function onQrScanSuccess(id) {
 
   try {
     const d = modalitaAttuale
-      ? await chiamaApi({ action: "prova", id: id, sport: modalitaAttuale })
-      : await chiamaApi({ action: "verify", id: id });
+      ? await chiamaApiRiprova({ action: "prova", id: id, sport: modalitaAttuale })
+      : await chiamaApiRiprova({ action: "verify", id: id });
 
     gestisciRisposta(d, id);
 
@@ -628,7 +641,7 @@ async function forzaIngresso() {
 
   try {
     // forza=1 salta il controllo del giorno e registra l'ingresso.
-    const d = await chiamaApi({ action: "verify", id: id, forza: "1" });
+    const d = await chiamaApiRiprova({ action: "verify", id: id, forza: "1" });
     const dettagli = [d.turno, d.disciplina].filter(Boolean).join(" · ");
     const nato = d.nascita ? "Nato il " + d.nascita : "";
 
@@ -661,8 +674,8 @@ async function annullaUltimo() {
 
   try {
     const d = ultimaAzione.sport
-      ? await chiamaApi({ action: "annullaProva", id: ultimaAzione.id, sport: ultimaAzione.sport })
-      : await chiamaApi({ action: "annulla", id: ultimaAzione.id });
+      ? await chiamaApiRiprova({ action: "annullaProva", id: ultimaAzione.id, sport: ultimaAzione.sport })
+      : await chiamaApiRiprova({ action: "annulla", id: ultimaAzione.id });
 
     mostraRisultato({
       tipo: d.ok ? "duplicato" : "errore",
@@ -732,12 +745,14 @@ async function svuotaCoda(manuale) {
 
   for (const voce of coda) {
     try {
-      voce.sport
+      const d = voce.sport
         ? await chiamaApi({ action: "prova", id: voce.id, sport: voce.sport })
         : await chiamaApi({ action: "verify", id: voce.id });
-      // Una risposta è arrivata (qualunque esito): non la ritento più.
-      // Ritento solo se la richiesta stessa fallisce (rete assente),
-      // altrimenti una scansione non valida resterebbe in coda per sempre.
+      // "Sistema occupato" è temporaneo (tanti telefoni insieme sullo
+      // stesso lock): NON è una risposta definitiva, va ritentata al
+      // prossimo giro. Qualunque altra risposta invece è definitiva
+      // (valida o no) e la scansione esce dalla coda.
+      if (d && d.ok === false && d.msg === "Sistema occupato, riprova") rimaste.push(voce);
     } catch (e) {
       // Solo un guasto di rete merita un altro tentativo: se il server
       // risponde male, riprovare all'infinito non cambia niente.
@@ -903,8 +918,8 @@ async function gestisciPersona(id) {
 
     try {
       const d = p.verificato
-        ? await chiamaApi({ action: "annullaProva", id: id, sport: modalitaAttuale })
-        : await chiamaApi({ action: "prova", id: id, sport: modalitaAttuale });
+        ? await chiamaApiRiprova({ action: "annullaProva", id: id, sport: modalitaAttuale })
+        : await chiamaApiRiprova({ action: "prova", id: id, sport: modalitaAttuale });
       if (d.ok) {
         p.verificato = !p.verificato;
         p.orario = d.orario || "";
@@ -933,7 +948,7 @@ async function gestisciPersona(id) {
   try {
     // forza=1: l'ingresso manuale passa sopra al controllo del giorno,
     // perché lo decide un volontario che ha la persona davanti.
-    const d = await chiamaApi({ action: azione, id: id, forza: "1" });
+    const d = await chiamaApiRiprova({ action: azione, id: id, forza: "1" });
     if (d.ok) {
       p.verificato = (azione === "verify");
       p.orario = d.orario || "";
