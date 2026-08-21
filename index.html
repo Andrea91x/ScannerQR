@@ -2,7 +2,7 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Scanner Entrata — Firenze Rugby Subacqueo</title>
 <!-- Lettore QR: prima il file nella stessa cartella di questa pagina.
      Se manca o non si carica, si ripiega su unpkg. -->
@@ -16,10 +16,15 @@
   :root {
     --blu:     #0d1b35;
     --blu2:    #1a2a4a;
-    --arancio: #e8511a;
+    --arancio: #e8511a;   /* colore modalità Ingresso */
+    --teal:    #14b8a6;   /* colore modalità Banco — volutamente diverso
+                              dall'arancio, così un colpo d'occhio basta
+                              a capire in che modalità è questo telefono */
     --verde:   #2dc653;
     --rosso:   #e63946;
     --giallo:  #f4a261;
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -29,18 +34,23 @@
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    -webkit-tap-highlight-color: transparent;
   }
   header {
     background: linear-gradient(135deg, var(--blu) 0%, var(--blu2) 60%, #2a1808 100%);
-    padding: 14px 16px 10px;
+    padding: calc(14px + var(--safe-t)) 16px 10px;
     display: flex;
     align-items: center;
     gap: 12px;
     border-bottom: 2px solid var(--arancio);
+    transition: border-color 0.25s;
   }
-  header img { width: 48px; height: 48px; object-fit: contain; flex-shrink: 0; }
+  body.modalita-banco header { border-bottom-color: var(--teal); }
+  header img { width: 48px; height: 48px; object-fit: contain; flex-shrink: 0; border-radius: 8px; }
   header .titolo h1 { font-size: 13px; font-weight: 800; line-height: 1.2; }
-  header .titolo p { font-size: 10px; color: var(--arancio); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+  header .titolo p { font-size: 10px; color: var(--arancio); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; transition: color 0.25s; }
+  body.modalita-banco header .titolo p { color: var(--teal); }
+
   .tabs { display: flex; background: rgba(0,0,0,0.4); border-bottom: 1px solid rgba(255,255,255,0.08); }
   .tab {
     flex: 1; padding: 11px 6px; text-align: center; cursor: pointer;
@@ -48,45 +58,86 @@
     color: rgba(255,255,255,0.45); transition: all 0.2s; letter-spacing: 0.5px;
   }
   .tab.active { color: white; background: rgba(232,81,26,0.15); border-bottom: 3px solid var(--arancio); }
+  body.modalita-banco .tab.active { background: rgba(20,184,166,0.15); border-bottom-color: var(--teal); }
+  .tab:active { opacity: 0.7; }
+
   .page { display: none; flex: 1; flex-direction: column; padding: 14px; gap: 12px; }
   .page.active { display: flex; }
 
-  /* Pillola con la modalità attuale (Ingresso / Banco: sport). Tap per
-     andare alla scheda CONFIG e cambiarla. */
+  /* Pillola con la modalità attuale (Ingresso / Banco: sport) e il
+     puntino di stato rete. Tap per andare alla scheda CONFIG. */
   .banda-modalita {
     text-align: center; font-size: 11px; font-weight: 800; letter-spacing: 1px;
     color: var(--arancio); background: rgba(232,81,26,0.12);
     border: 1px solid rgba(232,81,26,0.35); border-radius: 20px;
     padding: 8px 10px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    transition: all 0.25s;
   }
+  body.modalita-banco .banda-modalita {
+    color: var(--teal); background: rgba(20,184,166,0.12); border-color: rgba(20,184,166,0.35);
+  }
+  .dot-rete {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+    background: var(--verde); box-shadow: 0 0 6px var(--verde);
+  }
+  .dot-rete.offline {
+    background: var(--rosso); box-shadow: 0 0 6px var(--rosso);
+    animation: lampeggia 1.4s ease-in-out infinite;
+  }
+  @keyframes lampeggia { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
-  /* Banner della coda offline */
-  .banner-coda {
+  /* Banner della coda offline e delle scansioni non riuscite */
+  .banner-coda, .banner-fallite {
     display: none; align-items: center; gap: 10px;
-    background: rgba(244,162,97,0.15); border: 1px solid var(--giallo);
-    border-radius: 10px; padding: 10px 12px; font-size: 12px; color: var(--giallo);
+    border-radius: 10px; padding: 10px 12px; font-size: 12px; font-weight: 700;
   }
-  .banner-coda.visibile { display: flex; }
+  .banner-coda {
+    background: rgba(244,162,97,0.15); border: 1px solid var(--giallo); color: var(--giallo);
+  }
+  .banner-coda.visibile, .banner-fallite.visibile { display: flex; }
   .banner-coda span { flex: 1; }
   .banner-coda button {
     background: var(--giallo); color: #1a1a1a; border: none; border-radius: 8px;
-    padding: 6px 12px; font-weight: 800; font-size: 11px; cursor: pointer;
+    padding: 6px 12px; font-weight: 800; font-size: 11px; cursor: pointer; flex-shrink: 0;
   }
+  .banner-fallite {
+    background: rgba(230,57,70,0.15); border: 1px solid var(--rosso); color: #ffb4bb;
+    cursor: pointer;
+  }
+  .banner-fallite:active { opacity: 0.8; }
+  .banner-fallite span { flex: 1; }
 
   #reader {
     width: 100%; border-radius: 14px; overflow: hidden; background: #000;
     aspect-ratio: 1; max-width: 380px; margin: 0 auto;
-    border: 3px solid var(--arancio);
-    box-shadow: 0 0 0 1px rgba(232,81,26,0.3), 0 8px 32px rgba(0,0,0,0.5);
+    border: 3px solid rgba(232,81,26,0.35);
+    box-shadow: 0 0 0 1px rgba(232,81,26,0.15), 0 8px 32px rgba(0,0,0,0.5);
+    transition: border-color 0.3s, box-shadow 0.3s;
+    position: relative;
+  }
+  #reader.attivo {
+    border-color: var(--arancio);
+    box-shadow: 0 0 0 1px rgba(232,81,26,0.4), 0 0 24px rgba(232,81,26,0.35), 0 8px 32px rgba(0,0,0,0.5);
+    animation: respiro 2.2s ease-in-out infinite;
+  }
+  body.modalita-banco #reader.attivo {
+    border-color: var(--teal);
+    box-shadow: 0 0 0 1px rgba(20,184,166,0.4), 0 0 24px rgba(20,184,166,0.35), 0 8px 32px rgba(0,0,0,0.5);
+  }
+  @keyframes respiro {
+    0%, 100% { filter: brightness(1); }
+    50%      { filter: brightness(1.08); }
   }
   #reader img { display: none !important; }
+
   .result-box {
     border-radius: 14px; padding: 20px 16px;
-    text-align: center; display: none; animation: pop 0.25s ease;
+    text-align: center; display: none; animation: pop 0.22s cubic-bezier(.34,1.56,.64,1);
   }
   @keyframes pop {
-    from { transform: scale(0.88); opacity: 0; }
-    to   { transform: scale(1);    opacity: 1; }
+    from { transform: scale(0.9); opacity: 0; }
+    to   { transform: scale(1);   opacity: 1; }
   }
   .result-box.ok        { background: var(--verde);  display: block; }
   .result-box.duplicato { background: var(--giallo); color: #1a1a1a; display: block; }
@@ -99,8 +150,8 @@
   }
   .result-box .evento:empty { display: none; }
   .result-box .icona { font-size: 30px; margin-bottom: 4px; font-weight: 900; }
-  .result-box .nome  { font-size: 27px; font-weight: 900; line-height: 1.15; margin-bottom: 6px; word-break: break-word; }
-  .result-box .info  { font-size: 13px; opacity: 0.9; }
+  .result-box .nome  { font-size: 26px; font-weight: 900; line-height: 1.18; margin-bottom: 6px; word-break: break-word; }
+  .result-box .info  { font-size: 13px; opacity: 0.9; line-height: 1.5; }
   .result-box .nato  {
     font-size: 14px; font-weight: 700; margin-top: 10px;
     display: inline-block; padding: 4px 12px; border-radius: 20px;
@@ -110,48 +161,62 @@
   .btn-annulla {
     display: none; margin: 14px auto 0; background: rgba(0,0,0,0.25);
     border: 1px solid rgba(255,255,255,0.35); color: inherit;
-    border-radius: 8px; padding: 8px 18px; font-size: 12px; font-weight: 800; cursor: pointer;
+    border-radius: 8px; padding: 9px 18px; font-size: 12px; font-weight: 800; cursor: pointer;
   }
+  .btn-annulla:active { transform: scale(0.96); }
+
   .btn-scan {
     background: var(--arancio); color: white; border: none;
     border-radius: 12px; padding: 15px; font-size: 15px; font-weight: 800;
     cursor: pointer; width: 100%; letter-spacing: 0.5px;
-    box-shadow: 0 4px 16px rgba(232,81,26,0.4); transition: opacity 0.15s;
+    box-shadow: 0 4px 16px rgba(232,81,26,0.4); transition: background 0.25s, box-shadow 0.25s, transform 0.1s;
   }
-  .btn-scan:active { opacity: 0.8; }
+  body.modalita-banco .btn-scan { background: var(--teal); box-shadow: 0 4px 16px rgba(20,184,166,0.4); }
+  .btn-scan:active { transform: scale(0.98); opacity: 0.9; }
+
   .stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
   .stat-card {
     background: rgba(255,255,255,0.07); border-radius: 12px; padding: 12px 8px;
     text-align: center; border: 1px solid rgba(255,255,255,0.08);
   }
-  .stat-card .num { font-size: 26px; font-weight: 800; }
+  .stat-card .num { font-size: 26px; font-weight: 800; transition: transform 0.2s; }
   .stat-card .lbl { font-size: 10px; opacity: 0.6; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
   .stat-card.verde .num { color: var(--verde); }
   .stat-card.arancio .num { color: var(--arancio); }
+  body.modalita-banco .stat-card.arancio .num { color: var(--teal); }
+
   .search-box {
     background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15);
     border-radius: 10px; padding: 11px 14px; color: white; font-size: 14px; width: 100%; outline: none;
   }
+  .search-box:focus { border-color: rgba(255,255,255,0.35); }
   .search-box::placeholder { color: rgba(255,255,255,0.4); }
+
   .filtri-evento { display: flex; gap: 6px; flex-wrap: wrap; }
   .filtro-chip {
     background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
     color: rgba(255,255,255,0.6); border-radius: 20px; padding: 6px 13px;
     font-size: 11px; font-weight: 700; cursor: pointer; letter-spacing: 0.3px;
+    transition: all 0.15s;
   }
+  .filtro-chip:active { transform: scale(0.95); }
   .filtro-chip.attivo { background: var(--arancio); border-color: var(--arancio); color: #fff; }
+  body.modalita-banco .filtro-chip.attivo { background: var(--teal); border-color: var(--teal); }
+
   .persona-card .pevento {
     font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px;
     color: var(--arancio); margin-bottom: 2px;
   }
+  body.modalita-banco .persona-card .pevento { color: var(--teal); }
   .persona-card .pevento:empty { display: none; }
-  .lista-scroll { overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 7px; }
+  .lista-scroll { overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 7px; -webkit-overflow-scrolling: touch; }
   .persona-card {
     background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.08);
     border-radius: 11px; padding: 11px 13px; display: flex; align-items: center; gap: 11px;
     cursor: pointer; text-align: left; width: 100%; color: inherit; font: inherit;
+    transition: background 0.15s, transform 0.1s;
   }
-  .persona-card:active { background: rgba(255,255,255,0.14); }
+  .persona-card:active { background: rgba(255,255,255,0.14); transform: scale(0.99); }
   .persona-card.entrato { border-left: 3px solid var(--verde); background: rgba(45,198,83,0.08); }
   .persona-card .badge {
     width: 34px; height: 34px; border-radius: 50%;
@@ -165,32 +230,43 @@
   .chip { font-size: 10px; padding: 3px 9px; border-radius: 20px; font-weight: 700; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.5px; }
   .chip.si { background: var(--verde); color: white; }
   .chip.no { background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.6); }
+
   .btn-refresh {
     background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15);
     border-radius: 10px; color: white; padding: 11px; font-size: 13px;
-    cursor: pointer; font-weight: 700; width: 100%;
+    cursor: pointer; font-weight: 700; width: 100%; transition: background 0.15s;
   }
+  .btn-refresh:active { background: rgba(255,255,255,0.18); }
+
   .loading { text-align: center; padding: 40px; opacity: 0.5; font-size: 13px; line-height: 1.6; }
   .setting-label { font-size: 12px; opacity: 0.7; margin-bottom: 6px; display: block; text-transform: uppercase; letter-spacing: 0.5px; }
   .setting-input {
     background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
     border-radius: 10px; padding: 12px 14px; color: white; font-size: 13px; width: 100%; outline: none;
+    transition: border-color 0.15s;
   }
+  .setting-input:focus { border-color: rgba(255,255,255,0.4); }
   .setting-input::placeholder { color: rgba(255,255,255,0.3); }
   select.setting-input {
     -webkit-appearance: none; appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='rgba(255,255,255,0.6)'%3E%3Cpath d='M5.5 7.5l4.5 4.5 4.5-4.5' stroke='rgba(255,255,255,0.6)' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 12px center; background-size: 18px;
+    padding-right: 38px;
   }
   select.setting-input option { background: var(--blu2); color: white; }
+
   .btn-salva {
     background: var(--arancio); border: none; border-radius: 10px; color: white;
     padding: 14px; font-size: 15px; font-weight: 800; cursor: pointer; width: 100%;
-    box-shadow: 0 4px 16px rgba(232,81,26,0.35);
+    box-shadow: 0 4px 16px rgba(232,81,26,0.35); transition: transform 0.1s;
   }
+  .btn-salva:active { transform: scale(0.98); }
   .btn-test {
     background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
     border-radius: 10px; color: white; padding: 13px; font-size: 14px;
-    font-weight: 700; cursor: pointer; width: 100%;
+    font-weight: 700; cursor: pointer; width: 100%; transition: background 0.15s;
   }
+  .btn-test:active { background: rgba(255,255,255,0.18); }
   .msg-config { text-align: center; font-size: 13px; font-weight: 700; min-height: 18px; }
   .msg-config.ok { color: var(--verde); }
   .msg-config.ko { color: var(--giallo); }
@@ -199,6 +275,8 @@
     border-radius: 12px; padding: 14px; font-size: 12px; line-height: 1.8; opacity: 0.85;
   }
   .istruzioni b { color: var(--arancio); }
+
+  #tab-impostazioni.page { padding-bottom: calc(14px + var(--safe-b)); }
 </style>
 </head>
 <body>
@@ -207,7 +285,7 @@
   <!-- Se preferisci il logo anche senza rete, rimetti qui la tua stringa base64 al posto dell'URL -->
   <img src="https://raw.githubusercontent.com/Andrea91x/immagini-UWR/cf9e13f6240e9fe83e99be32db149476337eb038/Logo-Firs.jpeg" alt="Logo Firenze Rugby Subacqueo">
   <div class="titolo">
-    <h1>Festa Sport Acquatici 2026</h1>
+    <h1>Festa degli Sport 2026</h1>
     <p>Firenze Rugby Subacqueo</p>
     <p>By Sergi</p>
   </div>
@@ -220,10 +298,16 @@
 </div>
 
 <div id="tab-scanner" class="page active">
-  <div class="banda-modalita" id="banda-modalita" onclick="switchTab('impostazioni')"></div>
+  <div class="banda-modalita" id="banda-modalita" onclick="switchTab('impostazioni')">
+    <span class="dot-rete" id="dot-rete"></span>
+    <span id="testo-modalita"></span>
+  </div>
   <div class="banner-coda" id="banner-coda">
     <span id="testo-coda"></span>
     <button onclick="svuotaCoda(true)">RIPROVA</button>
+  </div>
+  <div class="banner-fallite" id="banner-fallite" onclick="mostraFallite()">
+    <span id="testo-fallite"></span>
   </div>
   <div id="reader"></div>
   <div id="result-box" class="result-box">
@@ -274,7 +358,9 @@
     <b>Dove si trova questo telefono</b><br>
     Scegli "Ingresso" se controlla i pass all'entrata, oppure il banco di uno sport
     se sta facendo provare quello sport. La scelta resta salvata su questo telefono:
-    non serve rifarla a ogni scansione, solo quando lo spostate.
+    non serve rifarla a ogni scansione, solo quando lo spostate. Un banco usa un
+    colore diverso dall'ingresso apposta, per riconoscere a colpo d'occhio se il
+    telefono è nella modalità giusta.
   </div>
   <div>
     <label class="setting-label" for="webapp-modalita">Modalità</label>
@@ -297,6 +383,7 @@ let ultimaAzione = null;      // per il tasto ANNULLA: { id, nome, sport? }
 let idGiornoSbagliato = null; // QR del giorno sbagliato in attesa di conferma (solo ingresso)
 let ultimoIdLetto = "";       // ultimo QR letto, per non rileggerlo di continuo
 let ultimoLettoTs = 0;
+let ultimoTipoRisultato = ""; // tipo dell'ultimo risultato mostrato, per decidere quanto tenerlo a schermo
 let wakeLock = null;
 let timerRipresa = null;
 
@@ -313,21 +400,32 @@ let modalitaAttuale = localStorage.getItem("modalita") || "";
 // possibile (funzione aggiornaSportDisponibili più sotto).
 let sportDisponibili = JSON.parse(localStorage.getItem("sport_cache") || "[]");
 
-// Coda offline: un oggetto per voce, non solo l'id, perché una prova
-// in coda va ritentata con l'azione e lo sport giusti anche se nel
-// frattempo il telefono cambia modalità. Con le versioni vecchie della
-// pagina la coda conteneva solo stringhe: le converto al volo.
+// Coda offline: un oggetto per voce, non solo l'id. "forza" ricorda se
+// era un ingresso di un altro giorno accettato apposta (altrimenti,
+// ritentando senza quel dettaglio, il server lo rifiuterebbe di nuovo
+// in silenzio). "nome", quando lo conosciamo già, serve solo a rendere
+// leggibile l'elenco delle scansioni non riuscite più sotto.
+// Con le versioni vecchie della pagina la coda conteneva solo stringhe:
+// le converto al volo.
 let coda = (JSON.parse(localStorage.getItem("coda_offline") || "[]")).map(function (v) {
-  return (typeof v === "string") ? { id: v, sport: "" } : v;
+  return (typeof v === "string") ? { id: v, sport: "", forza: false, nome: "" } : v;
 });
+
+// Scansioni che il server ha rifiutato in modo DEFINITIVO (non "sistema
+// occupato": quello è temporaneo e resta nella coda sopra). Non si
+// risolvono da sole: qualcuno deve controllare a mano dalla scheda
+// PRESENZE, poi le toglie da qui.
+let fallite = JSON.parse(localStorage.getItem("coda_fallite") || "[]");
 
 document.getElementById("webapp-url").value   = urlWebApp;
 document.getElementById("webapp-token").value = token;
 popolaSelectModalita(sportDisponibili);
 document.getElementById("webapp-modalita").value = modalitaAttuale;
 aggiornaBannerCoda();
+aggiornaBannerFallite();
 aggiornaBadgeModalita();
 aggiornaEtichetteStat();
+aggiornaStatoRete();
 if (urlWebApp && token) aggiornaSportDisponibili();
 
 // ============================================================
@@ -398,7 +496,13 @@ function switchTab(nome) {
   });
   document.querySelectorAll(".page").forEach(function (p) { p.classList.remove("active"); });
   document.getElementById("tab-" + nome).classList.add("active");
-  if (nome === "lista" && listaPersone.length === 0) caricaLista();
+
+  if (nome === "lista") {
+    // Se l'elenco è già in vista, lo aggiorno senza far sparire nulla
+    // dallo schermo: altrimenti, prima volta, il caricamento visibile
+    // di sempre (con i suoi messaggi chiari se qualcosa non va).
+    listaPersone.length ? caricaListaSilenziosa() : caricaLista();
+  }
 }
 
 // ============================================================
@@ -438,16 +542,29 @@ function etichettaModalita() {
 }
 
 function aggiornaBadgeModalita() {
-  const testo = etichettaModalita().toUpperCase();
-  document.getElementById("banda-modalita").textContent = testo;
+  document.getElementById("testo-modalita").textContent = etichettaModalita().toUpperCase();
   document.getElementById("btn-scan").textContent =
-    (scannerAttivo ? "FERMA SCANNER" : "AVVIA SCANNER") + " — " + testo;
+    (scannerAttivo ? "FERMA SCANNER" : "AVVIA SCANNER") + " — " + etichettaModalita().toUpperCase();
+  document.body.classList.toggle("modalita-banco", !!modalitaAttuale);
 }
 
 function aggiornaEtichetteStat() {
   document.getElementById("lbl-ent").textContent = modalitaAttuale ? "Provato" : "Entrati";
   document.getElementById("lbl-att").textContent = modalitaAttuale ? "Da provare" : "Attesa";
 }
+
+// ============================================================
+//  STATO RETE (solo un'indicazione visiva: la coda offline funziona
+//  comunque anche senza, basandosi sugli errori veri delle chiamate)
+// ============================================================
+function aggiornaStatoRete() {
+  const online = navigator.onLine;
+  const dot = document.getElementById("dot-rete");
+  dot.classList.toggle("offline", !online);
+  dot.title = online ? "Rete presente" : "Nessuna rete: le scansioni restano in coda";
+}
+window.addEventListener("online", function () { aggiornaStatoRete(); svuotaCoda(false); });
+window.addEventListener("offline", aggiornaStatoRete);
 
 // ============================================================
 //  SCANNER
@@ -472,6 +589,7 @@ function avviaScanner() {
 
   scannerAttivo = true;
   aggiornaBadgeModalita();
+  document.getElementById("reader").classList.add("attivo");
   nascondiRisultato();
   attivaWakeLock();
 
@@ -499,6 +617,7 @@ function fermaScanner() {
   }
   scannerAttivo = false;
   aggiornaBadgeModalita();
+  document.getElementById("reader").classList.remove("attivo");
   rilasciaWakeLock();
 }
 
@@ -537,8 +656,9 @@ async function onQrScanSuccess(id) {
       vibra([200, 80, 200]);
     } else {
       // Rete assente davvero: la scansione non va persa, entra in coda
-      // e riparte da sola.
-      accodaOffline(id, modalitaAttuale);
+      // e riparte da sola. Non conosciamo ancora il nome (non abbiamo
+      // ricevuto nessuna risposta): lo mostrerà solo quando riesce.
+      accodaOffline(id, modalitaAttuale, false, "");
       mostraRisultato({
         tipo: "duplicato", stato: "⇄", nome: "Salvato in coda",
         info: "Rete assente. Verrà registrato appena torna il segnale."
@@ -547,13 +667,15 @@ async function onQrScanSuccess(id) {
     }
   }
 
-  // Il riquadro NON si chiude da solo: resta lì finché non arriva
-  // la scansione successiva, così hai tutto il tempo di leggere il nome.
+  // Il riquadro NON si chiude da solo: resta finché non arriva la
+  // scansione successiva. Un "ok" è un solo colpo d'occhio e riparte
+  // presto; gli altri casi hanno più da leggere (o richiedono una
+  // decisione) e restano a schermo più a lungo.
   ultimoLettoTs = Date.now();
   timerRipresa = setTimeout(function () {
     if (scanner && scannerAttivo) scanner.resume();
     inCorso = false;
-  }, 1000);
+  }, ultimoTipoRisultato === "ok" ? 650 : 1500);
 }
 
 // Interpreta la risposta del server e aggiorna il riquadro, con testi
@@ -564,7 +686,11 @@ function gestisciRisposta(d, id) {
   if (modalitaAttuale) {
     // ---- Modalità BANCO: registra una prova, non un ingresso. ----
     if (!d.ok) {
-      mostraRisultato({ tipo: "errore", stato: "X", nome: "QR non valido", info: d.msg || "" });
+      // Il titolo è il messaggio vero del server, non più un generico
+      // "QR non valido": quel testo era sbagliato per casi come "manca
+      // la colonna nel foglio" o "sport non valido", che con un QR non
+      // c'entrano — e a un banco capitano più spesso di quanto sembri.
+      mostraRisultato({ tipo: "errore", stato: "✕", nome: "Errore", info: d.msg || "" });
       vibra([200, 80, 200]);
 
     } else if (d.duplicato) {
@@ -593,7 +719,7 @@ function gestisciRisposta(d, id) {
   const nato = d.nascita ? "Nato il " + d.nascita : "";
 
   if (!d.ok) {
-    mostraRisultato({ tipo: "errore", stato: "X", nome: "QR non valido", info: d.msg || "" });
+    mostraRisultato({ tipo: "errore", stato: "✕", nome: "Errore", info: d.msg || "" });
     vibra([200, 80, 200]);
 
   } else if (d.giornoSbagliato) {
@@ -633,6 +759,12 @@ async function forzaIngresso() {
   const id = idGiornoSbagliato;
   idGiornoSbagliato = null;
 
+  // Il nome è già a schermo (viene dalla verifica appena fatta): lo
+  // tengo da parte, così se la rete cade proprio ora e la scansione
+  // finisce in coda, l'elenco delle "non riuscite" mostra un nome e
+  // non solo un codice illeggibile.
+  const nomeConosciuto = document.getElementById("res-nome").textContent || "";
+
   clearTimeout(timerRipresa);
   inCorso = true;
   try { await scanner.pause(true); } catch (e) {}
@@ -656,7 +788,12 @@ async function forzaIngresso() {
       vibra([80, 40, 80]);
     }
   } catch (e) {
-    accodaOffline(id, "");
+    // Importante: la richiesta era un ingresso FORZATO. Se la rimetto
+    // in coda come una verifica normale, quando riparte da sola il
+    // server rifiuta di nuovo per lo stesso motivo (giorno sbagliato)
+    // e la scansione si perderebbe in silenzio, mostrando "ok" a
+    // nessuno. accodaOffline si ricorda che va rimandata CON forza=1.
+    accodaOffline(id, "", true, nomeConosciuto);
     mostraRisultato({ tipo: "duplicato", stato: "⇄", nome: "Salvato in coda",
       info: "Rete assente. Verrà registrato appena torna il segnale." });
   }
@@ -664,7 +801,7 @@ async function forzaIngresso() {
   timerRipresa = setTimeout(function () {
     if (scanner && scannerAttivo) scanner.resume();
     inCorso = false;
-  }, 1000);
+  }, 1500);
 }
 
 async function annullaUltimo() {
@@ -679,13 +816,13 @@ async function annullaUltimo() {
 
     mostraRisultato({
       tipo: d.ok ? "duplicato" : "errore",
-      stato: d.ok ? "↺" : "X",
+      stato: d.ok ? "↺" : "✕",
       nome: d.ok ? "Annullato" : "Non riuscito",
       info: d.ok ? chi : (d.msg || "")
     });
     ultimaAzione = null;
   } catch (e) {
-    mostraRisultato({ tipo: "errore", stato: "X", nome: "Non riuscito", info: "Controlla il collegamento" });
+    mostraRisultato({ tipo: "errore", stato: "✕", nome: "Non riuscito", info: "Controlla il collegamento" });
   }
 }
 
@@ -708,6 +845,7 @@ function mostraRisultato(r) {
   document.getElementById("res-nato").textContent   = r.nato   || "";
   document.getElementById("btn-annulla").style.display = "none";
   document.getElementById("btn-forza").style.display = "none";
+  ultimoTipoRisultato = r.tipo || "";
 }
 
 function nascondiRisultato() {
@@ -721,13 +859,14 @@ function nascondiRisultato() {
 // ============================================================
 //  CODA OFFLINE
 // ============================================================
-// Ogni voce ricorda anche lo sport (vuoto = ingresso), così quando la
-// coda si svuota ogni scansione viene ritentata con l'azione giusta
-// anche se nel frattempo il telefono ha cambiato modalità.
-function accodaOffline(id, sport) {
+// Ogni voce ricorda id, sport (vuoto = ingresso), forza (per gli
+// ingressi di un altro giorno accettati apposta) e il nome se già lo
+// conosciamo. Non aggiungo due volte la stessa identica combinazione.
+function accodaOffline(id, sport, forza, nome) {
   const s = sport || "";
-  const esiste = coda.some(function (v) { return v.id === id && v.sport === s; });
-  if (!esiste) coda.push({ id: id, sport: s });
+  const f = !!forza;
+  const esiste = coda.some(function (v) { return v.id === id && v.sport === s && v.forza === f; });
+  if (!esiste) coda.push({ id: id, sport: s, forza: f, nome: nome || "" });
   localStorage.setItem("coda_offline", JSON.stringify(coda));
   aggiornaBannerCoda();
 }
@@ -739,30 +878,96 @@ function aggiornaBannerCoda() {
     coda.length + (coda.length === 1 ? " scansione in attesa di rete" : " scansioni in attesa di rete");
 }
 
+function aggiornaBannerFallite() {
+  const banner = document.getElementById("banner-fallite");
+  banner.classList.toggle("visibile", fallite.length > 0);
+  document.getElementById("testo-fallite").textContent =
+    fallite.length + (fallite.length === 1
+      ? " scansione NON registrata — tocca per i dettagli"
+      : " scansioni NON registrate — tocca per i dettagli");
+}
+
+// Elenca le scansioni rifiutate in modo definitivo, con il motivo dato
+// dal server. Non si risolvono da sole: vanno sistemate a mano dalla
+// scheda PRESENZE (cercando la persona per nome), poi si confermano
+// come risolte per toglierle da qui.
+function mostraFallite() {
+  if (!fallite.length) return;
+  const righe = fallite.map(function (v, i) {
+    const chi = v.nome || ("QR " + v.id.slice(0, 8).toUpperCase());
+    return (i + 1) + ". " + chi + (v.sport ? " — " + v.sport : "") + "\n   " + v.msg;
+  }).join("\n\n");
+
+  const risolte = confirm(
+    "Scansioni NON registrate — vanno controllate a mano dalla scheda PRESENZE:\n\n" +
+    righe +
+    "\n\nOK = le ho controllate, toglile dall'elenco.\nAnnulla = lasciale qui, ci penso dopo."
+  );
+  if (risolte) {
+    fallite = [];
+    localStorage.setItem("coda_fallite", JSON.stringify(fallite));
+    aggiornaBannerFallite();
+  }
+}
+
 async function svuotaCoda(manuale) {
   if (!coda.length || !urlWebApp || !token) return;
   const rimaste = [];
+  let cambiateFallite = false;
 
   for (const voce of coda) {
+    const params = voce.sport
+      ? { action: "prova", id: voce.id, sport: voce.sport }
+      : { action: "verify", id: voce.id };
+    if (voce.forza) params.forza = "1";
+
     try {
-      const d = voce.sport
-        ? await chiamaApi({ action: "prova", id: voce.id, sport: voce.sport })
-        : await chiamaApi({ action: "verify", id: voce.id });
-      // "Sistema occupato" è temporaneo (tanti telefoni insieme sullo
-      // stesso lock): NON è una risposta definitiva, va ritentata al
-      // prossimo giro. Qualunque altra risposta invece è definitiva
-      // (valida o no) e la scansione esce dalla coda.
-      if (d && d.ok === false && d.msg === "Sistema occupato, riprova") rimaste.push(voce);
+      const d = await chiamaApi(params);
+
+      if (d && d.ok === false && d.msg === "Sistema occupato, riprova") {
+        // Transitorio — la fila su un'unica risorsa condivisa, non un
+        // rifiuto vero. Riprovo al giro successivo.
+        rimaste.push(voce);
+
+      } else if (d && d.ok === true && d.giornoSbagliato) {
+        // Era un ingresso "forza" che la rete non aveva fatto arrivare
+        // in tempo: senza quel dettaglio il server ripropone lo stesso
+        // rifiuto. Non decido da sola se accettarlo: lo giro a chi deve
+        // controllare a mano, invece di farlo sparire come se fosse
+        // andato a buon fine.
+        fallite.push({ id: voce.id, sport: voce.sport, nome: voce.nome || d.nome || "",
+                       msg: "Giorno sbagliato: non registrato, decide una persona" });
+        cambiateFallite = true;
+
+      } else if (d && d.ok === false) {
+        // Rifiuto definitivo (QR non trovato, sport non valido, colonna
+        // mancante...): ritentare non cambia nulla, meglio dirlo subito.
+        fallite.push({ id: voce.id, sport: voce.sport, nome: voce.nome || "",
+                       msg: d.msg || "Rifiutato dal server" });
+        cambiateFallite = true;
+      }
+      // In ogni altro caso è un successo vero: la voce esce dalla coda
+      // e basta, non deve comparire da nessun'altra parte.
+
     } catch (e) {
       // Solo un guasto di rete merita un altro tentativo: se il server
-      // risponde male, riprovare all'infinito non cambia niente.
-      if (e.tipo !== "server") rimaste.push(voce);
+      // risponde ma in modo anomalo, riprovare all'infinito non cambia
+      // nulla, e va segnalato invece di ritentare per sempre in silenzio.
+      if (e.tipo !== "server") {
+        rimaste.push(voce);
+      } else {
+        fallite.push({ id: voce.id, sport: voce.sport, nome: voce.nome || "",
+                       msg: "Il server ha risposto in modo anomalo" });
+        cambiateFallite = true;
+      }
     }
   }
 
   coda = rimaste;
   localStorage.setItem("coda_offline", JSON.stringify(coda));
+  if (cambiateFallite) localStorage.setItem("coda_fallite", JSON.stringify(fallite));
   aggiornaBannerCoda();
+  aggiornaBannerFallite();
 
   if (manuale) {
     alert(coda.length === 0
@@ -823,6 +1028,25 @@ async function caricaLista() {
       ? esc(e.message) + '<br>Il server risponde ma qualcosa non va: controlla il foglio.'
       : 'Elenco non raggiungibile.<br>Controlla la connessione e riprova.') + '</div>';
   }
+}
+
+// Come caricaLista(), ma senza toccare lo schermo finché non arrivano
+// davvero dati nuovi: usata quando si riapre la scheda PRESENZE e c'è
+// già qualcosa in vista. Un errore qui resta silenzioso — l'elenco di
+// prima è comunque meglio di uno schermo vuoto — e in ogni caso resta
+// sempre il tasto AGGIORNA ELENCO per un tentativo esplicito.
+async function caricaListaSilenziosa() {
+  if (!urlWebApp || !token) return;
+  try {
+    const d = modalitaAttuale
+      ? await chiamaApi({ action: "listaBanco", sport: modalitaAttuale })
+      : await chiamaApi({ action: "list" });
+    if (!Array.isArray(d)) return;
+    listaPersone = d;
+    renderFiltri();
+    aggiornaStat(personeEvento());
+    filtraLista(document.querySelector(".search-box").value);
+  } catch (e) { /* silenzioso apposta: vedi commento sopra */ }
 }
 
 // I contatori seguono l'evento selezionato, non la ricerca per nome:
@@ -950,11 +1174,16 @@ async function gestisciPersona(id) {
     // perché lo decide un volontario che ha la persona davanti.
     const d = await chiamaApiRiprova({ action: azione, id: id, forza: "1" });
     if (d.ok) {
+      const giaEntrato = (azione === "verify" && d.duplicato);
       p.verificato = (azione === "verify");
       p.orario = d.orario || "";
       vibra(80);
       aggiornaStat(personeEvento());
       filtraLista(document.querySelector(".search-box").value);
+      // Il foglio diceva già "SI" prima che toccassimo niente: la lista
+      // di questo telefono era vecchia, qualcun altro l'aveva già
+      // registrato. Non è un errore, ma il volontario deve saperlo.
+      if (giaEntrato) alert(p.nome + " risultava già entrato/a" + (d.orario ? " alle " + d.orario : "") + ".");
     } else {
       alert(d.msg || "Operazione non riuscita.");
     }
