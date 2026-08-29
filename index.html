@@ -218,6 +218,7 @@
   }
   .persona-card:active { background: rgba(255,255,255,0.14); transform: scale(0.99); }
   .persona-card.entrato { border-left: 3px solid var(--verde); background: rgba(45,198,83,0.08); }
+  .persona-card.occupata { opacity: 0.5; pointer-events: none; }
   .persona-card .badge {
     width: 34px; height: 34px; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
@@ -329,7 +330,7 @@
     <div class="stat-card arancio"><div class="num" id="stat-att">-</div><div class="lbl" id="lbl-att">Attesa</div></div>
   </div>
   <div class="filtri-evento" id="filtri-evento"></div>
-  <input class="search-box" type="search" placeholder="Cerca nome..." oninput="filtraLista(this.value)">
+  <input class="search-box" type="search" placeholder="Cerca nome..." oninput="filtraListaConAttesa(this.value)">
   <div class="lista-scroll" id="lista-container">
     <div class="loading">Apri questa scheda per caricare l'elenco</div>
   </div>
@@ -417,6 +418,22 @@ let coda = (JSON.parse(localStorage.getItem("coda_offline") || "[]")).map(functi
 // PRESENZE, poi le toglie da qui.
 let fallite = JSON.parse(localStorage.getItem("coda_fallite") || "[]");
 
+// Evita che il giro automatico ogni 15 secondi e un tap manuale su
+// "RIPROVA" processino la coda insieme: senza questo, i due potevano
+// leggere la stessa lista e rimandare due volte le stesse scansioni.
+let svuotandoCoda = false;
+
+// "Numero di turno" dell'ultima richiesta di elenco: se arrivano due
+// risposte e la più vecchia è più lenta, questo evita che sovrascriva
+// quella più recente già mostrata (può succedere cambiando scheda
+// avanti e indietro, o con una connessione instabile).
+let listaRichiestaId = 0;
+
+// Persone su cui è in corso un tap dall'elenco PRESENZE: un secondo tap
+// sulla stessa card mentre la prima richiesta è ancora in volo viene
+// ignorato, invece di partire una seconda richiesta per la stessa persona.
+let personeInElaborazione = new Set();
+
 document.getElementById("webapp-url").value   = urlWebApp;
 document.getElementById("webapp-token").value = token;
 popolaSelectModalita(sportDisponibili);
@@ -438,23 +455,49 @@ function esc(v) {
 }
 
 // Due guasti diversi che prima finivano nello stesso messaggio:
-//  - "rete": il telefono non è riuscito nemmeno a parlare col server.
-//            La scansione va messa in coda e ritentata.
+//  - "rete": il telefono non è riuscito nemmeno a parlare col server,
+//            oppure la risposta non è arrivata entro il tempo massimo
+//            (vedi TIMEOUT_MS più sotto). La scansione va messa in coda
+//            e ritentata.
 //  - "server": il server ha risposto, ma non con del JSON (di solito
 //            una pagina di errore di Apps Script). Rimettere in coda non
 //            serve a niente: va letto l'errore. Dirgli "manca la rete"
 //            manda il volontario a cercare il WiFi per un'ora.
+//
+// TIMEOUT_MS è il tempo massimo che aspettiamo QUI, sul telefono, prima
+// di arrenderci e mettere la scansione in coda per il tentativo
+// automatico successivo. È VOLUTAMENTE più corto dei 20 secondi che il
+// server può aspendere internamente per il proprio blocco (vedi
+// LockService in Codice.gs): aspettare fino in fondo terrebbe ferma la
+// persona davanti al volontario anche 20-25 secondi, e con Apps Script
+// (non è un server nostro, è comunque un servizio Google con tempi
+// propri, a volte lenti) può capitare più spesso di quanto si pensi.
+//
+// Arrendersi presto è sicuro, non solo veloce: sia il server (controlla
+// "è già SI?" prima di scrivere) sia la coda qui sotto sono pensati per
+// essere ripetuti senza rischio — ripetere una scansione già andata a
+// buon fine torna "già registrato", non la registra due volte. Quindi
+// possiamo permetterci di non aspettare fino in fondo: se il server
+// stava comunque per rispondere, quella risposta arriva e basta, senza
+// che nessuno la stia più aspettando; se non ce l'ha fatta, la coda la
+// ripropone da sola.
+const TIMEOUT_MS = 10000;
+
 async function chiamaApi(params) {
   const q = new URLSearchParams(Object.assign({ token: token }, params));
+  const controllo = ("AbortController" in window) ? new AbortController() : null;
+  const timeoutId = controllo ? setTimeout(function () { controllo.abort(); }, TIMEOUT_MS) : null;
 
   let res;
   try {
-    res = await fetch(urlWebApp + "?" + q.toString());
+    res = await fetch(urlWebApp + "?" + q.toString(), controllo ? { signal: controllo.signal } : {});
   } catch (e) {
-    const err = new Error("Nessun collegamento col server");
+    if (timeoutId) clearTimeout(timeoutId);
+    const err = new Error(e.name === "AbortError" ? "Il server non ha risposto in tempo" : "Nessun collegamento col server");
     err.tipo = "rete";
     throw err;
   }
+  if (timeoutId) clearTimeout(timeoutId);
 
   const testo = await res.text();
   try {
@@ -473,16 +516,17 @@ function vibra(pattern) {
   if (navigator.vibrate) navigator.vibrate(pattern);
 }
 
-// Con più telefoni che scansionano nello stesso istante, il foglio può
-// rispondere "Sistema occupato, riprova": non è un errore della persona
-// o del QR, è solo la fila su un'unica risorsa condivisa (vedi lock nel
-// backend) che in quel momento è più lunga del solito. Ritento UNA volta
-// da solo, in silenzio, prima di disturbare il volontario: la maggior
-// parte delle volte la fila si è già sciolta un secondo dopo.
+// Con un tetto di risposta più corto (TIMEOUT_MS sopra), il messaggio
+// "Sistema occupato" del server — che per esistere richiede che il
+// server abbia GIÀ aspettato fino a 20 secondi per il proprio blocco —
+// in pratica non arriva quasi mai: il telefono si sarà già arreso prima
+// e la scansione sarà già in coda. Se però capitasse comunque (una
+// risposta arrivata giusto in tempo), un solo ritentativo veloce basta:
+// il motivo che l'ha causato di solito è già sparito un attimo dopo.
 async function chiamaApiRiprova(params) {
   const prima = await chiamaApi(params);
-  if (prima.ok !== false || prima.msg !== "Sistema occupato, riprova") return prima;
-  await new Promise(r => setTimeout(r, 1200));
+  if (!(prima && prima.ok === false && prima.msg === "Sistema occupato, riprova")) return prima;
+  await new Promise(r => setTimeout(r, 700));
   return await chiamaApi(params);
 }
 
@@ -621,6 +665,20 @@ function fermaScanner() {
   rilasciaWakeLock();
 }
 
+// Mostra subito il riquadro "in corso", e se dopo qualche secondo la
+// risposta non è ancora arrivata aggiorna il testo: con tante scansioni
+// insieme un'attesa di qualche secondo è normale (il server le mette in
+// fila da solo), ma senza questo messaggio sembra che l'app si sia
+// bloccata. Ritorna il timer, da cancellare non appena arriva davvero
+// la risposta.
+function mostraAttesaConMessaggioRitardo(testoIniziale, testoRitardo) {
+  mostraRisultato({ tipo: "attesa", stato: "…", nome: testoIniziale });
+  return setTimeout(function () {
+    const info = document.getElementById("res-info");
+    if (info) info.textContent = testoRitardo;
+  }, 3000);
+}
+
 async function onQrScanSuccess(id) {
   const adesso = Date.now();
 
@@ -636,16 +694,19 @@ async function onQrScanSuccess(id) {
   try { await scanner.pause(true); } catch (e) {}
 
   vibra(80);
-  mostraRisultato({ tipo: "attesa", stato: "…", nome: "Verifica in corso" });
+  const timerAttesa = mostraAttesaConMessaggioRitardo(
+    "Verifica in corso", "Ci sono più scansioni insieme, un attimo…");
 
   try {
     const d = modalitaAttuale
       ? await chiamaApiRiprova({ action: "prova", id: id, sport: modalitaAttuale })
       : await chiamaApiRiprova({ action: "verify", id: id });
 
+    clearTimeout(timerAttesa);
     gestisciRisposta(d, id);
 
   } catch (e) {
+    clearTimeout(timerAttesa);
     if (e.tipo === "server") {
       // Il server c'è ma qualcosa non va nel foglio o nello script:
       // rimettere in coda non risolverebbe, va letto l'errore.
@@ -655,13 +716,14 @@ async function onQrScanSuccess(id) {
       });
       vibra([200, 80, 200]);
     } else {
-      // Rete assente davvero: la scansione non va persa, entra in coda
-      // e riparte da sola. Non conosciamo ancora il nome (non abbiamo
-      // ricevuto nessuna risposta): lo mostrerà solo quando riesce.
+      // Rete assente davvero (o il server non ha risposto in tempo): la
+      // scansione non va persa, entra in coda e riparte da sola. Non
+      // conosciamo ancora il nome (non abbiamo ricevuto nessuna
+      // risposta): lo mostrerà solo quando riesce.
       accodaOffline(id, modalitaAttuale, false, "");
       mostraRisultato({
         tipo: "duplicato", stato: "⇄", nome: "Salvato in coda",
-        info: "Rete assente. Verrà registrato appena torna il segnale."
+        info: "Il server sta rispondendo lentamente. Verrà registrato in automatico appena arriva la conferma."
       });
       vibra([120, 60, 120]);
     }
@@ -769,11 +831,13 @@ async function forzaIngresso() {
   inCorso = true;
   try { await scanner.pause(true); } catch (e) {}
 
-  mostraRisultato({ tipo: "attesa", stato: "…", nome: "Registro l'ingresso" });
+  const timerAttesa = mostraAttesaConMessaggioRitardo(
+    "Registro l'ingresso", "Ci sono più scansioni insieme, un attimo…");
 
   try {
     // forza=1 salta il controllo del giorno e registra l'ingresso.
     const d = await chiamaApiRiprova({ action: "verify", id: id, forza: "1" });
+    clearTimeout(timerAttesa);
     const dettagli = [d.turno, d.disciplina].filter(Boolean).join(" · ");
     const nato = d.nascita ? "Nato il " + d.nascita : "";
 
@@ -788,6 +852,7 @@ async function forzaIngresso() {
       vibra([80, 40, 80]);
     }
   } catch (e) {
+    clearTimeout(timerAttesa);
     // Importante: la richiesta era un ingresso FORZATO. Se la rimetto
     // in coda come una verifica normale, quando riparte da sola il
     // server rifiuta di nuovo per lo stesso motivo (giorno sbagliato)
@@ -910,69 +975,85 @@ function mostraFallite() {
   }
 }
 
+// Il giro automatico ogni 15 secondi e un tap manuale su "RIPROVA"
+// possono partire quasi insieme: senza questa guardia, entrambi
+// leggerebbero la stessa coda e rimanderebbero due volte le stesse
+// scansioni in parallelo. Se una è già in corso, l'altra esce subito
+// (per il tap manuale, avvisando che è già in corso invece di restare
+// muta).
 async function svuotaCoda(manuale) {
   if (!coda.length || !urlWebApp || !token) return;
-  const rimaste = [];
-  let cambiateFallite = false;
+  if (svuotandoCoda) {
+    if (manuale) alert("Sto già ritentando le scansioni in coda, un momento…");
+    return;
+  }
+  svuotandoCoda = true;
 
-  for (const voce of coda) {
-    const params = voce.sport
-      ? { action: "prova", id: voce.id, sport: voce.sport }
-      : { action: "verify", id: voce.id };
-    if (voce.forza) params.forza = "1";
+  try {
+    const rimaste = [];
+    let cambiateFallite = false;
 
-    try {
-      const d = await chiamaApi(params);
+    for (const voce of coda) {
+      const params = voce.sport
+        ? { action: "prova", id: voce.id, sport: voce.sport }
+        : { action: "verify", id: voce.id };
+      if (voce.forza) params.forza = "1";
 
-      if (d && d.ok === false && d.msg === "Sistema occupato, riprova") {
-        // Transitorio — la fila su un'unica risorsa condivisa, non un
-        // rifiuto vero. Riprovo al giro successivo.
-        rimaste.push(voce);
+      try {
+        const d = await chiamaApi(params);
 
-      } else if (d && d.ok === true && d.giornoSbagliato) {
-        // Era un ingresso "forza" che la rete non aveva fatto arrivare
-        // in tempo: senza quel dettaglio il server ripropone lo stesso
-        // rifiuto. Non decido da sola se accettarlo: lo giro a chi deve
-        // controllare a mano, invece di farlo sparire come se fosse
-        // andato a buon fine.
-        fallite.push({ id: voce.id, sport: voce.sport, nome: voce.nome || d.nome || "",
-                       msg: "Giorno sbagliato: non registrato, decide una persona" });
-        cambiateFallite = true;
+        if (d && d.ok === false && d.msg === "Sistema occupato, riprova") {
+          // Transitorio — la fila su un'unica risorsa condivisa, non un
+          // rifiuto vero. Riprovo al giro successivo.
+          rimaste.push(voce);
 
-      } else if (d && d.ok === false) {
-        // Rifiuto definitivo (QR non trovato, sport non valido, colonna
-        // mancante...): ritentare non cambia nulla, meglio dirlo subito.
-        fallite.push({ id: voce.id, sport: voce.sport, nome: voce.nome || "",
-                       msg: d.msg || "Rifiutato dal server" });
-        cambiateFallite = true;
-      }
-      // In ogni altro caso è un successo vero: la voce esce dalla coda
-      // e basta, non deve comparire da nessun'altra parte.
+        } else if (d && d.ok === true && d.giornoSbagliato) {
+          // Era un ingresso "forza" che la rete non aveva fatto arrivare
+          // in tempo: senza quel dettaglio il server ripropone lo stesso
+          // rifiuto. Non decido da sola se accettarlo: lo giro a chi deve
+          // controllare a mano, invece di farlo sparire come se fosse
+          // andato a buon fine.
+          fallite.push({ id: voce.id, sport: voce.sport, nome: voce.nome || d.nome || "",
+                         msg: "Giorno sbagliato: non registrato, decide una persona" });
+          cambiateFallite = true;
 
-    } catch (e) {
-      // Solo un guasto di rete merita un altro tentativo: se il server
-      // risponde ma in modo anomalo, riprovare all'infinito non cambia
-      // nulla, e va segnalato invece di ritentare per sempre in silenzio.
-      if (e.tipo !== "server") {
-        rimaste.push(voce);
-      } else {
-        fallite.push({ id: voce.id, sport: voce.sport, nome: voce.nome || "",
-                       msg: "Il server ha risposto in modo anomalo" });
-        cambiateFallite = true;
+        } else if (d && d.ok === false) {
+          // Rifiuto definitivo (QR non trovato, sport non valido, colonna
+          // mancante...): ritentare non cambia nulla, meglio dirlo subito.
+          fallite.push({ id: voce.id, sport: voce.sport, nome: voce.nome || "",
+                         msg: d.msg || "Rifiutato dal server" });
+          cambiateFallite = true;
+        }
+        // In ogni altro caso è un successo vero: la voce esce dalla coda
+        // e basta, non deve comparire da nessun'altra parte.
+
+      } catch (e) {
+        // Solo un guasto di rete merita un altro tentativo: se il server
+        // risponde ma in modo anomalo, riprovare all'infinito non cambia
+        // nulla, e va segnalato invece di ritentare per sempre in silenzio.
+        if (e.tipo !== "server") {
+          rimaste.push(voce);
+        } else {
+          fallite.push({ id: voce.id, sport: voce.sport, nome: voce.nome || "",
+                         msg: "Il server ha risposto in modo anomalo" });
+          cambiateFallite = true;
+        }
       }
     }
-  }
 
-  coda = rimaste;
-  localStorage.setItem("coda_offline", JSON.stringify(coda));
-  if (cambiateFallite) localStorage.setItem("coda_fallite", JSON.stringify(fallite));
-  aggiornaBannerCoda();
-  aggiornaBannerFallite();
+    coda = rimaste;
+    localStorage.setItem("coda_offline", JSON.stringify(coda));
+    if (cambiateFallite) localStorage.setItem("coda_fallite", JSON.stringify(fallite));
+    aggiornaBannerCoda();
+    aggiornaBannerFallite();
 
-  if (manuale) {
-    alert(coda.length === 0
-      ? "Tutte le scansioni in coda sono state registrate."
-      : "Ne restano " + coda.length + ". Riprova quando il segnale è stabile.");
+    if (manuale) {
+      alert(coda.length === 0
+        ? "Tutte le scansioni in coda sono state registrate."
+        : "Ne restano " + coda.length + ". Riprova quando il segnale è stabile.");
+    }
+  } finally {
+    svuotandoCoda = false;
   }
 }
 
@@ -1006,6 +1087,12 @@ async function caricaLista() {
   }
   cont.innerHTML = '<div class="loading">Caricamento…</div>';
 
+  // "Numero di turno" di QUESTA richiesta: se nel frattempo ne parte
+  // un'altra più recente (cambio scheda, nuovo tap su Aggiorna) e
+  // questa più vecchia risponde più tardi, la riconosciamo come
+  // superata e non sovrascriviamo dati più freschi con dati vecchi.
+  const questaRichiesta = ++listaRichiestaId;
+
   try {
     // In modalità Banco l'elenco arriva già con la spunta di QUESTO
     // sport (getListaBanco sul server); in modalità Ingresso è
@@ -1013,6 +1100,8 @@ async function caricaLista() {
     const d = modalitaAttuale
       ? await chiamaApi({ action: "listaBanco", sport: modalitaAttuale })
       : await chiamaApi({ action: "list" });
+
+    if (questaRichiesta !== listaRichiestaId) return; // superata da una più recente
 
     if (!Array.isArray(d)) {
       cont.innerHTML = '<div class="loading">' + esc(d.msg || "Risposta non valida") + '</div>';
@@ -1024,6 +1113,7 @@ async function caricaLista() {
     aggiornaStat(personeEvento());
     renderLista(personeEvento());
   } catch (e) {
+    if (questaRichiesta !== listaRichiestaId) return;
     cont.innerHTML = '<div class="loading">' + (e.tipo === "server"
       ? esc(e.message) + '<br>Il server risponde ma qualcosa non va: controlla il foglio.'
       : 'Elenco non raggiungibile.<br>Controlla la connessione e riprova.') + '</div>';
@@ -1037,10 +1127,12 @@ async function caricaLista() {
 // sempre il tasto AGGIORNA ELENCO per un tentativo esplicito.
 async function caricaListaSilenziosa() {
   if (!urlWebApp || !token) return;
+  const questaRichiesta = ++listaRichiestaId;
   try {
     const d = modalitaAttuale
       ? await chiamaApi({ action: "listaBanco", sport: modalitaAttuale })
       : await chiamaApi({ action: "list" });
+    if (questaRichiesta !== listaRichiestaId) return; // superata da una più recente
     if (!Array.isArray(d)) return;
     listaPersone = d;
     renderFiltri();
@@ -1095,8 +1187,9 @@ function renderLista(persone) {
 
   cont.innerHTML = ordinati.map(function (p) {
     const sotto = [p.nascita, p.turno, p.disciplina].filter(Boolean).join(" · ");
+    const occupata = personeInElaborazione.has(String(p.id));
     return '' +
-      '<button class="persona-card ' + (p.verificato ? "entrato" : "") + '" ' +
+      '<button class="persona-card ' + (p.verificato ? "entrato" : "") + (occupata ? " occupata" : "") + '" ' +
               'onclick="gestisciPersona(\'' + esc(p.id) + '\')">' +
         '<div class="badge">' + (p.verificato ? "✓" : "○") + '</div>' +
         '<div class="dati">' +
@@ -1125,70 +1218,96 @@ function filtraLista(t) {
   }));
 }
 
+// Aspetta una breve pausa dall'ultimo tasto premuto prima di rifare
+// tutta la lista: senza questo, ogni singola lettera digitata nella
+// ricerca ricostruiva l'intero elenco a schermo, e con qualche centinaio
+// di persone si sentiva a scattare su un telefono non recentissimo.
+let timerRicerca = null;
+function filtraListaConAttesa(t) {
+  clearTimeout(timerRicerca);
+  timerRicerca = setTimeout(function () { filtraLista(t); }, 150);
+}
+
 // Registrazione manuale: serve quando il QR non si legge, il telefono
 // della persona è scarico o non è arrivata la mail. Il comportamento
 // dipende dalla modalità: in Banco registra/annulla una prova, in
 // Ingresso registra/annulla l'ingresso — come faceva sempre.
 async function gestisciPersona(id) {
-  const p = listaPersone.find(function (x) { return String(x.id) === String(id); });
+  const idTesto = String(id);
+  const p = listaPersone.find(function (x) { return String(x.id) === idTesto; });
   if (!p) return;
 
-  if (modalitaAttuale) {
-    const chi = p.nome + " — " + modalitaAttuale;
+  // Un secondo tap sulla stessa card mentre la prima richiesta è ancora
+  // in volo (facile con lo schermo affollato, o per impazienza) non
+  // deve partire una seconda richiesta per la stessa persona: il
+  // risultato non sarebbe sbagliato (il server la riconoscerebbe come
+  // "già fatta"), ma l'avviso che ne segue confonderebbe chi ha solo
+  // toccato due volte per sbaglio.
+  if (personeInElaborazione.has(idTesto)) return;
+  personeInElaborazione.add(idTesto);
+  renderLista(personeEvento());
+
+  try {
+    if (modalitaAttuale) {
+      const chi = p.nome + " — " + modalitaAttuale;
+      const domanda = p.verificato
+        ? "Annullare la prova di " + chi + "?"
+        : "Registrare la prova di " + chi + "?";
+      if (!confirm(domanda)) return;
+
+      try {
+        const d = p.verificato
+          ? await chiamaApiRiprova({ action: "annullaProva", id: id, sport: modalitaAttuale })
+          : await chiamaApiRiprova({ action: "prova", id: id, sport: modalitaAttuale });
+        if (d.ok) {
+          p.verificato = !p.verificato;
+          p.orario = d.orario || "";
+          vibra(80);
+          aggiornaStat(personeEvento());
+          filtraLista(document.querySelector(".search-box").value);
+        } else {
+          alert(d.msg || "Operazione non riuscita.");
+        }
+      } catch (e) {
+        alert(e.tipo === "server"
+          ? e.message + "\nIl server risponde ma qualcosa non va nel foglio."
+          : "Nessuna connessione. Riprova fra poco.");
+      }
+      return;
+    }
+
+    const azione = p.verificato ? "annulla" : "verify";
+    const chi = p.nome + (p.nascita ? " (nato il " + p.nascita + ")" : "");
+    const dove = p.evento ? "\nEvento: " + p.evento : "";
     const domanda = p.verificato
-      ? "Annullare la prova di " + chi + "?"
-      : "Registrare la prova di " + chi + "?";
+      ? "Annullare l'ingresso di " + chi + "?" + dove
+      : "Registrare l'ingresso di " + chi + " senza QR?" + dove;
     if (!confirm(domanda)) return;
 
     try {
-      const d = p.verificato
-        ? await chiamaApiRiprova({ action: "annullaProva", id: id, sport: modalitaAttuale })
-        : await chiamaApiRiprova({ action: "prova", id: id, sport: modalitaAttuale });
+      // forza=1: l'ingresso manuale passa sopra al controllo del giorno,
+      // perché lo decide un volontario che ha la persona davanti.
+      const d = await chiamaApiRiprova({ action: azione, id: id, forza: "1" });
       if (d.ok) {
-        p.verificato = !p.verificato;
+        const giaEntrato = (azione === "verify" && d.duplicato);
+        p.verificato = (azione === "verify");
         p.orario = d.orario || "";
         vibra(80);
         aggiornaStat(personeEvento());
         filtraLista(document.querySelector(".search-box").value);
+        // Il foglio diceva già "SI" prima che toccassimo niente: la lista
+        // di questo telefono era vecchia, qualcun altro l'aveva già
+        // registrato. Non è un errore, ma il volontario deve saperlo.
+        if (giaEntrato) alert(p.nome + " risultava già entrato/a" + (d.orario ? " alle " + d.orario : "") + ".");
       } else {
         alert(d.msg || "Operazione non riuscita.");
       }
     } catch (e) {
-      alert(e.tipo === "server"
-        ? e.message + "\nIl server risponde ma qualcosa non va nel foglio."
-        : "Nessuna connessione. Riprova fra poco.");
+      alert("Nessuna connessione. Riprova fra poco.");
     }
-    return;
-  }
-
-  const azione = p.verificato ? "annulla" : "verify";
-  const chi = p.nome + (p.nascita ? " (nato il " + p.nascita + ")" : "");
-  const dove = p.evento ? "\nEvento: " + p.evento : "";
-  const domanda = p.verificato
-    ? "Annullare l'ingresso di " + chi + "?" + dove
-    : "Registrare l'ingresso di " + chi + " senza QR?" + dove;
-  if (!confirm(domanda)) return;
-
-  try {
-    // forza=1: l'ingresso manuale passa sopra al controllo del giorno,
-    // perché lo decide un volontario che ha la persona davanti.
-    const d = await chiamaApiRiprova({ action: azione, id: id, forza: "1" });
-    if (d.ok) {
-      const giaEntrato = (azione === "verify" && d.duplicato);
-      p.verificato = (azione === "verify");
-      p.orario = d.orario || "";
-      vibra(80);
-      aggiornaStat(personeEvento());
-      filtraLista(document.querySelector(".search-box").value);
-      // Il foglio diceva già "SI" prima che toccassimo niente: la lista
-      // di questo telefono era vecchia, qualcun altro l'aveva già
-      // registrato. Non è un errore, ma il volontario deve saperlo.
-      if (giaEntrato) alert(p.nome + " risultava già entrato/a" + (d.orario ? " alle " + d.orario : "") + ".");
-    } else {
-      alert(d.msg || "Operazione non riuscita.");
-    }
-  } catch (e) {
-    alert("Nessuna connessione. Riprova fra poco.");
+  } finally {
+    personeInElaborazione.delete(idTesto);
+    renderLista(personeEvento());
   }
 }
 
